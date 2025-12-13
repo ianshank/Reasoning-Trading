@@ -195,7 +195,222 @@ pytest tests/test_mcts.py
 
 # Run with verbose output
 pytest -v
+
+# Using Make commands
+make test           # Run all tests
+make test-unit      # Run unit tests only
+make test-integration  # Run integration tests
+make test-e2e       # Run E2E tests
+make test-cov       # Run tests with coverage report
 ```
+
+## CI/CD Pipeline
+
+This project includes a comprehensive CI/CD pipeline using GitHub Actions.
+
+### Workflows
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| **CI** | Push, PR | Linting, type checking, tests, build validation |
+| **Release** | Tags (`v*.*.*`) | Build, test, publish to PyPI/Docker |
+| **Security** | Push, Schedule | Dependency scanning, SAST, secret detection |
+
+### CI Pipeline Stages
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         CI Pipeline                          │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────┐   ┌────────────┐   ┌─────────────┐            │
+│  │  Lint   │   │ Type Check │   │    Build    │            │
+│  │ (Ruff)  │   │  (MyPy)    │   │  (Package)  │            │
+│  └────┬────┘   └─────┬──────┘   └──────┬──────┘            │
+│       │              │                  │                   │
+│       └──────────────┼──────────────────┘                   │
+│                      │                                      │
+│               ┌──────▼──────┐                               │
+│               │ Unit Tests  │ (Python 3.11, 3.12, 3.13)    │
+│               └──────┬──────┘                               │
+│                      │                                      │
+│               ┌──────▼──────┐                               │
+│               │ Integration │                               │
+│               │   Tests     │                               │
+│               └──────┬──────┘                               │
+│                      │                                      │
+│               ┌──────▼──────┐                               │
+│               │  E2E Tests  │                               │
+│               └──────┬──────┘                               │
+│                      │                                      │
+│               ┌──────▼──────┐                               │
+│               │  Coverage   │                               │
+│               │   Report    │                               │
+│               └─────────────┘                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Running CI Locally
+
+```bash
+# Install pre-commit hooks
+make pre-commit-install
+
+# Run all code quality checks
+make check
+
+# Run CI-style tests
+make ci-test
+
+# Run security checks
+make ci-security
+```
+
+## Docker
+
+### Building Images
+
+```bash
+# Build production image
+make docker-build
+
+# Build development image
+make docker-build-dev
+
+# Or using docker directly
+docker build -t reasoning-trading:latest .
+docker build --target development -t reasoning-trading:dev .
+```
+
+### Running with Docker
+
+```bash
+# Run API server
+docker run -it --rm --env-file .env -p 8000:8000 reasoning-trading:latest
+
+# Run CLI commands
+docker run -it --rm --env-file .env reasoning-trading:latest reasoning-trading analyze AAPL
+
+# Run tests in container
+docker run -it --rm reasoning-trading:dev pytest tests/ -v
+```
+
+### Docker Compose
+
+```bash
+# Start all services (API + Redis)
+docker-compose up -d
+
+# Start with development tools (Redis Commander)
+docker-compose --profile dev up -d
+
+# Run tests
+docker-compose --profile test run --rm test
+
+# View logs
+docker-compose logs -f api
+
+# Stop services
+docker-compose down
+```
+
+### Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `api` | 8000 | Trading API server |
+| `redis` | 6379 | Cache and message broker |
+| `redis-commander` | 8081 | Redis web UI (dev profile) |
+
+## Development Workflow
+
+### Quick Start
+
+```bash
+# Complete development setup
+make setup
+
+# This will:
+# 1. Create virtual environment
+# 2. Install dev dependencies
+# 3. Install pre-commit hooks
+```
+
+### Daily Development
+
+```bash
+# Before starting work
+make lint          # Check for issues
+make format        # Auto-format code
+make type-check    # Run type checker
+
+# Run tests frequently
+make test-unit     # Fast feedback
+make test-cov      # With coverage
+
+# Before committing
+make check         # All quality checks
+make pre-commit-run  # Run all hooks
+```
+
+### Makefile Commands
+
+```bash
+make help          # Show all available commands
+
+# Installation
+make install       # Production dependencies
+make install-dev   # Development dependencies
+make install-all   # All dependencies
+
+# Testing
+make test          # All tests
+make test-unit     # Unit tests only
+make test-integration  # Integration tests
+make test-e2e      # E2E tests
+make test-cov      # With coverage
+
+# Code Quality
+make lint          # Run linter
+make lint-fix      # Fix lint issues
+make format        # Format code
+make type-check    # Type checking
+make check         # All checks
+
+# Docker
+make docker-build  # Build image
+make docker-run    # Run container
+make docker-compose-up    # Start services
+make docker-compose-down  # Stop services
+
+# Application
+make run-api       # Start API server
+make run-cli       # CLI help
+make analyze SYMBOL=AAPL  # Analyze symbol
+```
+
+### Pre-commit Hooks
+
+The project uses pre-commit hooks for code quality:
+
+```bash
+# Install hooks
+pre-commit install
+pre-commit install --hook-type commit-msg
+
+# Run on all files
+pre-commit run --all-files
+
+# Update hooks
+pre-commit autoupdate
+```
+
+**Included hooks:**
+- Ruff (linting & formatting)
+- MyPy (type checking)
+- Bandit (security)
+- detect-secrets (secret scanning)
+- YAML/JSON/TOML validation
+- Conventional commit messages
 
 ## Project Structure
 
