@@ -206,6 +206,136 @@ class CacheSettings(BaseSettings):
     )
 
 
+class RAGSettings(BaseSettings):
+    """RAG (Retrieval-Augmented Generation) configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="RAG_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # Storage settings
+    persist_dir: str = Field(
+        default="./data/rag_db",
+        description="Directory for persisting RAG databases",
+    )
+    vector_db_type: str = Field(
+        default="in_memory",
+        description="Vector DB type (chromadb, faiss, in_memory)",
+    )
+
+    # Embedding settings
+    embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="Sentence transformer embedding model",
+    )
+    embedding_dimension: int = Field(
+        default=384,
+        ge=64,
+        le=4096,
+        description="Embedding vector dimension",
+    )
+
+    # Retrieval settings
+    default_top_k: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Default number of results to retrieve",
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity threshold for retrieval",
+    )
+
+    # Pattern RAG settings
+    pattern_min_sharpe: float = Field(
+        default=0.3,
+        ge=-5.0,
+        le=10.0,
+        description="Minimum Sharpe ratio to store patterns",
+    )
+    pattern_max_per_symbol: int = Field(
+        default=1000,
+        ge=100,
+        le=100000,
+        description="Maximum patterns per symbol",
+    )
+
+
+class CAGSettings(BaseSettings):
+    """CAG (Cache-Augmented Generation) configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="CAG_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # TTL settings (seconds)
+    l1_ttl_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=86400,
+        description="L1 (exact match) cache TTL",
+    )
+    l2_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=604800,
+        description="L2 (semantic) cache TTL",
+    )
+    l3_ttl_seconds: int = Field(
+        default=7200,
+        ge=300,
+        le=604800,
+        description="L3 (RAG) cache TTL",
+    )
+
+    # Similarity thresholds
+    l2_semantic_threshold: float = Field(
+        default=0.92,
+        ge=0.5,
+        le=1.0,
+        description="Threshold for L2 semantic match",
+    )
+    l3_rag_threshold: float = Field(
+        default=0.85,
+        ge=0.3,
+        le=1.0,
+        description="Threshold for L3 RAG match",
+    )
+
+    # Capacity settings
+    max_l1_entries: int = Field(
+        default=10000,
+        ge=100,
+        le=1000000,
+        description="Maximum L1 cache entries",
+    )
+    max_l2_entries: int = Field(
+        default=50000,
+        ge=1000,
+        le=10000000,
+        description="Maximum L2 cache entries",
+    )
+
+    # Ensemble settings
+    ensemble_strategy: str = Field(
+        default="confidence_weighted",
+        description="Ensemble strategy (uniform, confidence_weighted, adaptive)",
+    )
+    min_ensemble_sources: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        description="Minimum sources for ensemble decision",
+    )
+
+
 class DebateSettings(BaseSettings):
     """Multi-agent debate configuration."""
 
@@ -329,6 +459,8 @@ class Settings(BaseSettings):
     mcts: MCTSSettings = Field(default_factory=MCTSSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
+    rag: RAGSettings = Field(default_factory=RAGSettings)
+    cag: CAGSettings = Field(default_factory=CAGSettings)
     debate: DebateSettings = Field(default_factory=DebateSettings)
     api: APISettings = Field(default_factory=APISettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)
