@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from reasoning_trading.core.actions import TradingAction, TradingDirection
@@ -21,6 +21,8 @@ from reasoning_trading.core.state import AnalystSignals, TradingState
 from reasoning_trading.langgraph.orchestrator import TradingOrchestrator
 from reasoning_trading.mcts.tree import MCTSConfig, MCTSTree
 from reasoning_trading.services.portfolio import PortfolioService
+
+from enterprise_ui.backend.core.errors import handle_error
 
 logger = structlog.get_logger(__name__)
 
@@ -206,10 +208,12 @@ async def analyze_symbol(
         )
 
     except Exception as e:
-        logger.error("Analysis failed", symbol=request.symbol, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Analysis failed: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Analysis failed",
+            log_message="Analysis failed",
+            symbol=request.symbol,
         )
 
 
@@ -287,10 +291,12 @@ async def make_decision(
         )
 
     except Exception as e:
-        logger.error("Decision failed", symbol=request.symbol, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Decision failed: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Decision failed",
+            log_message="Decision failed",
+            symbol=request.symbol,
         )
 
 
@@ -389,10 +395,12 @@ async def execute_trade(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Trade execution failed", symbol=request.symbol, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Trade execution failed: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Trade execution failed",
+            log_message="Trade execution failed",
+            symbol=request.symbol,
         )
 
 
@@ -418,7 +426,9 @@ async def execute_trade(
     **Returns:** Latest analyst signals if available.
     """,
 )
-async def get_signals(symbol: str) -> SignalsResponse:
+async def get_signals(
+    symbol: str = Path(..., pattern="^[A-Z0-9/]{1,10}$", description="Trading symbol")
+) -> SignalsResponse:
     """
     Get analyst signals for a symbol.
 
@@ -478,7 +488,7 @@ async def get_signals(symbol: str) -> SignalsResponse:
     """,
 )
 async def get_trading_state(
-    symbol: str,
+    symbol: str = Path(..., pattern="^[A-Z0-9/]{1,10}$", description="Trading symbol"),
     portfolio: PortfolioService = Depends(get_portfolio_service),
 ) -> StateResponse:
     """
@@ -522,8 +532,10 @@ async def get_trading_state(
         return StateResponse(**state)
 
     except Exception as e:
-        logger.error("Failed to fetch state", symbol=symbol, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch state: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch state",
+            log_message="Failed to fetch state",
+            symbol=symbol,
         )

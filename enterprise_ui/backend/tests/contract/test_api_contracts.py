@@ -30,33 +30,33 @@ class TestTradingResponseContracts:
             json={"symbol": "AAPL", "current_price": 150.25},
         )
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            # Required fields
-            required_fields = [
-                "symbol",
-                "analyst_signals",
-                "consensus_score",
-                "confidence",
-                "timestamp",
-            ]
+        # Required fields
+        required_fields = [
+            "symbol",
+            "analyst_signals",
+            "consensus_score",
+            "confidence",
+            "timestamp",
+        ]
 
-            for field in required_fields:
-                assert (
-                    field in data
-                ), f"Required field '{field}' missing from response"
+        for field in required_fields:
+            assert (
+                field in data
+            ), f"Required field '{field}' missing from response"
 
-            # Field types
-            assert isinstance(data["symbol"], str)
-            assert isinstance(data["analyst_signals"], dict)
-            assert isinstance(data["consensus_score"], (int, float))
-            assert isinstance(data["confidence"], (int, float))
-            assert isinstance(data["timestamp"], str)
+        # Field types
+        assert isinstance(data["symbol"], str)
+        assert isinstance(data["analyst_signals"], dict)
+        assert isinstance(data["consensus_score"], (int, float))
+        assert isinstance(data["confidence"], (int, float))
+        assert isinstance(data["timestamp"], str)
 
-            # Value ranges
-            assert -1.0 <= data["consensus_score"] <= 1.0
-            assert 0.0 <= data["confidence"] <= 1.0
+        # Value ranges
+        assert -1.0 <= data["consensus_score"] <= 1.0
+        assert 0.0 <= data["confidence"] <= 1.0
 
     async def test_decide_response_schema(self, client: AsyncClient):
         """Test decide endpoint response matches schema."""
@@ -65,30 +65,30 @@ class TestTradingResponseContracts:
             json={"symbol": "AAPL", "current_price": 150.25},
         )
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            # Required fields
-            required_fields = [
-                "symbol",
-                "action",
-                "confidence",
-                "value_estimate",
-                "timestamp",
-            ]
+        # Required fields
+        required_fields = [
+            "symbol",
+            "action",
+            "confidence",
+            "value_estimate",
+            "timestamp",
+        ]
 
-            for field in required_fields:
-                assert field in data
+        for field in required_fields:
+            assert field in data
 
-            # Action object structure
-            action = data["action"]
-            assert isinstance(action, dict)
-            assert "direction" in action
+        # Action object structure
+        action = data["action"]
+        assert isinstance(action, dict)
+        assert "direction" in action
 
-            # Types
-            assert isinstance(data["symbol"], str)
-            assert isinstance(data["confidence"], (int, float))
-            assert isinstance(data["value_estimate"], (int, float))
+        # Types
+        assert isinstance(data["symbol"], str)
+        assert isinstance(data["confidence"], (int, float))
+        assert isinstance(data["value_estimate"], (int, float))
 
     async def test_execute_response_schema(self, client: AsyncClient):
         """Test execute endpoint response matches schema."""
@@ -102,27 +102,27 @@ class TestTradingResponseContracts:
             },
         )
 
-        if response.status_code in [200, 201]:
-            data = response.json()
+        assert response.status_code in [200, 201], f"Expected status 200 or 201, got {response.status_code}"
+        data = response.json()
 
-            # Required fields for execution response
-            required_fields = [
-                "symbol",
-                "direction",
-                "quantity",
-                "success",
-                "message",
-            ]
+        # Required fields for execution response
+        required_fields = [
+            "symbol",
+            "direction",
+            "quantity",
+            "success",
+            "message",
+        ]
 
-            for field in required_fields:
-                assert field in data
+        for field in required_fields:
+            assert field in data
 
-            # Types
-            assert isinstance(data["symbol"], str)
-            assert isinstance(data["direction"], str)
-            assert isinstance(data["quantity"], (int, float))
-            assert isinstance(data["success"], bool)
-            assert isinstance(data["message"], str)
+        # Types
+        assert isinstance(data["symbol"], str)
+        assert isinstance(data["direction"], str)
+        assert isinstance(data["quantity"], (int, float))
+        assert isinstance(data["success"], bool)
+        assert isinstance(data["message"], str)
 
 
 @pytest.mark.contract
@@ -134,65 +134,65 @@ class TestPortfolioResponseContracts:
         """Test portfolio state response matches schema."""
         response = await client.get("/api/v1/portfolio/state")
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            # Required fields
-            required_fields = [
-                "cash_balance",
-                "portfolio_value",
-                "timestamp",
-            ]
+        # Required fields
+        required_fields = [
+            "cash_balance",
+            "portfolio_value",
+            "timestamp",
+        ]
 
-            for field in required_fields:
-                assert field in data
+        for field in required_fields:
+            assert field in data
 
-            # Types
-            assert isinstance(data["cash_balance"], (int, float))
-            assert isinstance(data["portfolio_value"], (int, float))
-            assert isinstance(data["timestamp"], str)
+        # Types
+        assert isinstance(data["cash_balance"], (int, float))
+        assert isinstance(data["portfolio_value"], (int, float))
+        assert isinstance(data["timestamp"], str)
 
-            # Non-negative values
-            assert data["cash_balance"] >= 0
-            assert data["portfolio_value"] >= 0
+        # Non-negative values
+        assert data["cash_balance"] >= 0
+        assert data["portfolio_value"] >= 0
 
     async def test_positions_response_schema(self, client: AsyncClient):
         """Test positions response matches schema."""
         response = await client.get("/api/v1/portfolio/positions")
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            assert isinstance(data, (list, dict))
+        assert isinstance(data, (list, dict))
 
-            if isinstance(data, list) and len(data) > 0:
-                position = data[0]
+        if isinstance(data, list) and len(data) > 0:
+            position = data[0]
 
-                # Each position should have these fields
-                assert "symbol" in position
-                assert "quantity" in position
+            # Each position should have these fields
+            assert "symbol" in position
+            assert "quantity" in position
 
-                assert isinstance(position["symbol"], str)
-                assert isinstance(position["quantity"], (int, float))
+            assert isinstance(position["symbol"], str)
+            assert isinstance(position["quantity"], (int, float))
 
     async def test_risk_metrics_response_schema(self, client: AsyncClient):
         """Test risk metrics response matches schema."""
         response = await client.get("/api/v1/portfolio/risk-metrics")
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            # Should have risk-related fields
-            assert isinstance(data, dict)
+        # Should have risk-related fields
+        assert isinstance(data, dict)
 
-            # Check for common risk metrics
-            if "leverage" in data:
-                assert isinstance(data["leverage"], (int, float))
-                assert data["leverage"] >= 0
+        # Check for common risk metrics
+        if "leverage" in data:
+            assert isinstance(data["leverage"], (int, float))
+            assert data["leverage"] >= 0
 
-            if "margin_utilization" in data:
-                assert isinstance(data["margin_utilization"], (int, float))
-                assert 0 <= data["margin_utilization"] <= 1
+        if "margin_utilization" in data:
+            assert isinstance(data["margin_utilization"], (int, float))
+            assert 0 <= data["margin_utilization"] <= 1
 
     async def test_risk_check_response_schema(self, client: AsyncClient):
         """Test risk check response matches schema."""
@@ -207,18 +207,18 @@ class TestPortfolioResponseContracts:
             },
         )
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            # Required fields
-            required_fields = ["allowed", "violations"]
+        # Required fields
+        required_fields = ["allowed", "violations"]
 
-            for field in required_fields:
-                assert field in data
+        for field in required_fields:
+            assert field in data
 
-            # Types
-            assert isinstance(data["allowed"], bool)
-            assert isinstance(data["violations"], list)
+        # Types
+        assert isinstance(data["allowed"], bool)
+        assert isinstance(data["violations"], list)
 
 
 # ============================================================================
@@ -285,14 +285,14 @@ class TestTypeConsistency:
             json={"symbol": "AAPL", "current_price": 150.25},
         )
 
-        if response.status_code == 200:
-            assert isinstance(response.json()["symbol"], str)
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        assert isinstance(response.json()["symbol"], str)
 
         # Test signals endpoint
         response = await client.get("/api/v1/trading/signals/AAPL")
 
-        if response.status_code == 200:
-            assert isinstance(response.json()["symbol"], str)
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        assert isinstance(response.json()["symbol"], str)
 
     async def test_timestamp_always_iso_string(self, client: AsyncClient):
         """Test timestamp is always ISO format string."""
@@ -301,17 +301,17 @@ class TestTypeConsistency:
             json={"symbol": "AAPL", "current_price": 150.25},
         )
 
-        if response.status_code == 200:
-            timestamp = response.json()["timestamp"]
-            assert isinstance(timestamp, str)
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        timestamp = response.json()["timestamp"]
+        assert isinstance(timestamp, str)
 
-            # Should be valid ISO format
-            from datetime import datetime
+        # Should be valid ISO format
+        from datetime import datetime
 
-            try:
-                datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            except ValueError:
-                pytest.fail(f"Invalid ISO timestamp: {timestamp}")
+        try:
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            pytest.fail(f"Invalid ISO timestamp: {timestamp}")
 
     async def test_prices_always_positive(self, client: AsyncClient):
         """Test price fields are always positive."""
@@ -320,11 +320,11 @@ class TestTypeConsistency:
             json={"symbol": "AAPL", "current_price": 150.25},
         )
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            if "current_price" in data:
-                assert data["current_price"] > 0
+        if "current_price" in data:
+            assert data["current_price"] > 0
 
 
 # ============================================================================
@@ -477,14 +477,14 @@ class TestPaginationContracts:
             "/api/v1/portfolio/positions?limit=10&offset=0"
         )
 
-        if response.status_code == 200:
-            data = response.json()
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        data = response.json()
 
-            # If pagination is supported, check for metadata
-            if isinstance(data, dict) and "items" in data:
-                assert "total" in data or "count" in data
-                assert "items" in data
-                assert isinstance(data["items"], list)
+        # If pagination is supported, check for metadata
+        if isinstance(data, dict) and "items" in data:
+            assert "total" in data or "count" in data
+            assert "items" in data
+            assert isinstance(data["items"], list)
 
 
 # ============================================================================
@@ -504,9 +504,9 @@ class TestContentTypeContracts:
             json={"symbol": "AAPL", "current_price": 150.25},
         )
 
-        if response.status_code == 200:
-            content_type = response.headers.get("content-type", "")
-            assert "application/json" in content_type
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        content_type = response.headers.get("content-type", "")
+        assert "application/json" in content_type
 
     async def test_accepts_json_content_type(self, client: AsyncClient):
         """Test API accepts JSON content type."""
@@ -540,15 +540,14 @@ class TestCORSContracts:
         )
 
         # CORS headers might be present
-        if response.status_code == 200:
-            headers = response.headers
+        assert response.status_code == 200, f"Expected status 200, got {response.status_code}"
+        headers = response.headers
 
-            # Check for CORS headers
-            assert (
-                "access-control-allow-origin" in headers
-                or "Access-Control-Allow-Origin" in headers
-                or True  # Flexible check
-            )
+        # Check for CORS headers
+        assert (
+            "access-control-allow-origin" in headers
+            or "Access-Control-Allow-Origin" in headers
+        )
 
     async def test_cors_preflight_success(self, client: AsyncClient):
         """Test CORS preflight requests succeed."""

@@ -114,7 +114,7 @@ async def market_websocket(
 @websocket_router.websocket("/decisions")
 async def decisions_websocket(
     websocket: WebSocket,
-    token: Optional[str] = Query(None),
+    token: str = Query(...),
 ):
     """
     WebSocket endpoint for trading decision streaming.
@@ -122,9 +122,11 @@ async def decisions_websocket(
     Streams real-time trading decisions, trade executions,
     regime-triggered decisions, and trading signals.
 
+    Note: This endpoint requires authentication.
+
     Args:
         websocket: The WebSocket connection
-        token: Optional authentication token
+        token: Authentication token (required)
 
     Message format from client:
         {
@@ -153,7 +155,7 @@ async def decisions_websocket(
 @websocket_router.websocket("/portfolio")
 async def portfolio_websocket(
     websocket: WebSocket,
-    token: Optional[str] = Query(None),
+    token: str = Query(...),
 ):
     """
     WebSocket endpoint for portfolio updates streaming.

@@ -8,14 +8,17 @@ This module provides REST API endpoints for:
 - Position risk checking
 """
 
+import os
 from datetime import datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from reasoning_trading.services.portfolio import PortfolioService
+
+from enterprise_ui.backend.core.errors import handle_error
 
 logger = structlog.get_logger(__name__)
 
@@ -164,10 +167,11 @@ async def get_portfolio_state(
         )
 
     except Exception as e:
-        logger.error("Failed to fetch portfolio state", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch portfolio state: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch portfolio state",
+            log_message="Failed to fetch portfolio state",
         )
 
 
@@ -242,10 +246,11 @@ async def get_all_positions(
         )
 
     except Exception as e:
-        logger.error("Failed to fetch positions", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch positions: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch positions",
+            log_message="Failed to fetch positions",
         )
 
 
@@ -266,7 +271,7 @@ async def get_all_positions(
     """,
 )
 async def get_position(
-    symbol: str,
+    symbol: str = Path(..., pattern="^[A-Z0-9/]{1,10}$", description="Trading symbol"),
     portfolio: PortfolioService = Depends(get_portfolio_service),
 ) -> PositionResponse:
     """
@@ -308,10 +313,12 @@ async def get_position(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to fetch position", symbol=symbol, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch position: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch position",
+            log_message="Failed to fetch position",
+            symbol=symbol,
         )
 
 
@@ -374,10 +381,11 @@ async def get_risk_metrics(
         )
 
     except Exception as e:
-        logger.error("Failed to calculate risk metrics", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to calculate risk metrics: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to calculate risk metrics",
+            log_message="Failed to calculate risk metrics",
         )
 
 
@@ -448,7 +456,6 @@ async def check_position_risk(
         )
 
         # Detailed checks - get position limit from environment or settings
-        import os
         max_position_size_pct = float(os.environ.get("MAX_POSITION_SIZE_PCT", "10.0")) / 100.0
         state = portfolio.get_state()
         checks = {
@@ -472,8 +479,10 @@ async def check_position_risk(
         )
 
     except Exception as e:
-        logger.error("Risk check failed", symbol=request.symbol, error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Risk check failed: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Risk check failed",
+            log_message="Risk check failed",
+            symbol=request.symbol,
         )

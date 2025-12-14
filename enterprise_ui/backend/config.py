@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from reasoning_trading.config import Settings as CoreSettings
@@ -291,6 +291,27 @@ class BackendSettings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development environment."""
         return self.environment == "development"
+
+    @model_validator(mode="after")
+    def validate_jwt_secret_in_production(self) -> "BackendSettings":
+        """
+        Validate that the default JWT secret is not used in production.
+
+        Raises:
+            ValueError: If the default JWT secret is used in production environment
+        """
+        DEFAULT_SECRET = "CHANGE_ME_IN_PRODUCTION_USE_OPENSSL_RAND_HEX_32"
+
+        if self.is_production:
+            current_secret = self.jwt.secret_key.get_secret_value()
+            if current_secret == DEFAULT_SECRET:
+                raise ValueError(
+                    "CRITICAL SECURITY ERROR: Cannot use default JWT secret in production. "
+                    "Set JWT_SECRET_KEY environment variable to a secure random value. "
+                    "Generate one with: openssl rand -hex 32"
+                )
+
+        return self
 
     def disable_docs_in_production(self) -> None:
         """Disable API documentation in production."""

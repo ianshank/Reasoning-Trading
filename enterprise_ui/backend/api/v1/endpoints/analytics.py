@@ -8,6 +8,7 @@ This module provides REST API endpoints for:
 - Cache performance statistics
 """
 
+import os
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from reasoning_trading.lambda_arch.coordinator import LambdaCoordinator
 from reasoning_trading.services.portfolio import PortfolioService
+
+from enterprise_ui.backend.core.errors import handle_error
 
 logger = structlog.get_logger(__name__)
 
@@ -150,7 +153,6 @@ async def get_performance_metrics(
         sharpe_ratio = portfolio.calculate_sharpe_ratio()
 
         # Calculate returns - get initial value from portfolio or environment config
-        import os
         initial_value = float(os.environ.get("INITIAL_PORTFOLIO_VALUE", "0")) or state.initial_portfolio_value or state.portfolio_value
         total_return = state.portfolio_value - initial_value
         total_return_pct = (total_return / initial_value) * 100 if initial_value > 0 else 0.0
@@ -200,10 +202,11 @@ async def get_performance_metrics(
         )
 
     except Exception as e:
-        logger.error("Failed to calculate performance metrics", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to calculate performance metrics: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to calculate performance metrics",
+            log_message="Failed to calculate performance metrics",
         )
 
 
@@ -264,10 +267,11 @@ async def get_lambda_stats(
         )
 
     except Exception as e:
-        logger.error("Failed to fetch Lambda stats", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch Lambda stats: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch Lambda stats",
+            log_message="Failed to fetch Lambda stats",
         )
 
 
@@ -333,10 +337,11 @@ async def get_speed_layer_metrics(
         )
 
     except Exception as e:
-        logger.error("Failed to fetch speed layer metrics", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch speed layer metrics: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch speed layer metrics",
+            log_message="Failed to fetch speed layer metrics",
         )
 
 
@@ -411,8 +416,9 @@ async def get_cache_stats(
         )
 
     except Exception as e:
-        logger.error("Failed to fetch cache stats", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch cache stats: {str(e)}",
+        raise handle_error(
+            logger=logger,
+            error=e,
+            generic_message="Failed to fetch cache stats",
+            log_message="Failed to fetch cache stats",
         )

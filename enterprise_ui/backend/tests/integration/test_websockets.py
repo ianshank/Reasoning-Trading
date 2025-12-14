@@ -253,7 +253,7 @@ class TestMCTSStream:
 
                 # Listen for completion message
                 try:
-                    async for _ in range(10):  # Listen for up to 10 messages
+                    for _ in range(10):  # Listen for up to 10 messages
                         response = await asyncio.wait_for(
                             ws.receive_json(), timeout=1.0
                         )
