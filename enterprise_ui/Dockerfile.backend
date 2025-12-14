@@ -1,0 +1,85 @@
+# Multi-stage Dockerfile for Reasoning Trading Backend
+# Stage 1: Base image with Python and system dependencies
+FROM python:3.11-slim AS base
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user for security
+RUN useradd -m -u 1000 -s /bin/bash appuser
+
+# Set working directory
+WORKDIR /app
+
+# Stage 2: Dependencies installation
+FROM base AS dependencies
+
+# Copy only dependency files first (for better caching)
+COPY --chown=appuser:appuser ../pyproject.toml ../README.md /tmp/reasoning-trading/
+COPY --chown=appuser:appuser ../src /tmp/reasoning-trading/src
+
+# Install reasoning_trading package with all dependencies
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -e "/tmp/reasoning-trading[webui]" && \
+    pip install gunicorn uvicorn[standard] websockets
+
+# Stage 3: Application
+FROM base AS application
+
+# Copy installed packages from dependencies stage
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
+
+# Copy reasoning_trading source (for development/editable install)
+COPY --chown=appuser:appuser ../src/reasoning_trading /app/reasoning_trading
+
+# Copy enterprise_ui backend
+COPY --chown=appuser:appuser ./backend /app/enterprise_ui/backend
+COPY --chown=appuser:appuser ./backend/__init__.py /app/enterprise_ui/__init__.py
+
+# Create data directory for database/cache
+RUN mkdir -p /app/data && chown appuser:appuser /app/data
+
+# Switch to non-root user
+USER appuser
+
+# Add /app to PYTHONPATH so enterprise_ui imports work
+ENV PYTHONPATH=/app:$PYTHONPATH
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Environment variable for worker count (default: 4)
+ENV GUNICORN_WORKERS=4
+
+# Default command: run with gunicorn for production
+# Worker count is configurable via GUNICORN_WORKERS environment variable
+CMD gunicorn \
+     enterprise_ui.backend.main:app \
+     --workers ${GUNICORN_WORKERS:-4} \
+     --worker-class uvicorn.workers.UvicornWorker \
+     --bind 0.0.0.0:8000 \
+     --timeout 120 \
+     --graceful-timeout 30 \
+     --keep-alive 5 \
+     --log-level info \
+     --access-logfile - \
+     --error-logfile -
+
+# Alternative command for development (with auto-reload):
+# CMD ["python", "-m", "enterprise_ui.backend.main"]

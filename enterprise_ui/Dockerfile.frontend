@@ -1,0 +1,66 @@
+# Multi-stage Dockerfile for Reasoning Trading Frontend
+# Stage 1: Build stage with Node.js
+FROM node:18-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Accept build arguments for environment configuration
+ARG VITE_API_BASE_URL=http://localhost:8000/api/v1
+ARG VITE_WS_BASE_URL=ws://localhost:8000/api/v1/ws
+ARG NODE_ENV=production
+
+# Set environment variables for build
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_WS_BASE_URL=$VITE_WS_BASE_URL \
+    NODE_ENV=$NODE_ENV
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci --only=production=false
+
+# Copy source code
+COPY . .
+
+# Build application
+RUN npm run build
+
+# Verify build output
+RUN ls -la /app/dist && \
+    test -f /app/dist/index.html || (echo "Build failed: index.html not found" && exit 1)
+
+# Stage 2: Production stage with Nginx
+FROM nginx:1.25-alpine AS production
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Remove default nginx configuration
+RUN rm -rf /etc/nginx/conf.d/* /usr/share/nginx/html/*
+
+# Copy built files from builder stage
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Create nginx user and set permissions
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html
+
+# Expose port 80
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:80/ || exit 1
+
+# Use nginx-specific user
+USER nginx
+
+# Start nginx (default command from base image)
+CMD ["nginx", "-g", "daemon off;"]
+
+# Metadata
+LABEL maintainer="Reasoning Trading Team" \
+      description="Frontend UI for Reasoning Trading Platform" \
+      version="1.0.0"
