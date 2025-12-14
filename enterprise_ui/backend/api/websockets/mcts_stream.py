@@ -50,6 +50,9 @@ class MCTSStreamHandler:
         # Search room mapping (search_id -> room_id)
         self.search_rooms: Dict[str, str] = {}
 
+        # Search tasks (search_id -> asyncio.Task)
+        self.search_tasks: Dict[str, asyncio.Task] = {}
+
         logger.info("mcts_stream_handler_initialized")
 
     async def handle_connection(
@@ -223,9 +226,10 @@ class MCTSStreamHandler:
         )
 
         # Start MCTS search process in background task
-        asyncio.create_task(
+        task = asyncio.create_task(
             self._run_mcts_search(connection_id, search_id, symbol, config)
         )
+        self.search_tasks[search_id] = task
 
     async def _run_mcts_search(
         self,
@@ -285,6 +289,7 @@ class MCTSStreamHandler:
                     await self.stream_iteration_update(
                         search_id=search_id,
                         iteration=iteration,
+                        total_iterations=max_iterations,
                         best_action=str(tree.get_best_action()) if tree.root else "none",
                         best_value=tree.root.mean_value if tree.root else 0.0,
                         total_nodes=tree.total_nodes if hasattr(tree, "total_nodes") else iteration,
@@ -298,10 +303,23 @@ class MCTSStreamHandler:
                 total_simulations=iteration,
             )
 
+        except asyncio.CancelledError:
+            logger.info("mcts_search_cancelled", search_id=search_id)
+            # Update search status
+            if search_id in self.active_searches:
+                self.active_searches[search_id]["status"] = "cancelled"
+                self.active_searches[search_id]["cancelled_at"] = datetime.utcnow().isoformat()
+            # Re-raise to properly propagate cancellation
+            raise
+
         except Exception as e:
             logger.error("mcts_search_error", search_id=search_id, error=str(e))
             error_message = create_message("error", {"error": str(e), "search_id": search_id})
             await self.connection_manager.send_personal_message(connection_id, error_message)
+
+        finally:
+            # Clean up task reference
+            self.search_tasks.pop(search_id, None)
 
     async def _handle_stop_search(
         self,
@@ -342,6 +360,15 @@ class MCTSStreamHandler:
             connection_id=connection_id,
         )
 
+        # Cancel the running task if it exists
+        task = self.search_tasks.get(search_id)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass  # Expected when task is cancelled
+
         # Send confirmation
         response = create_message(
             "search_stopped",
@@ -353,8 +380,6 @@ class MCTSStreamHandler:
         await self.connection_manager.send_personal_message(
             connection_id, response
         )
-
-        # TODO: Actually stop the MCTS search process
 
     async def _handle_update_config(
         self,

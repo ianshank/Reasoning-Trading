@@ -308,7 +308,7 @@ class PortfolioStreamHandler:
 
             # Calculate VaR (Value at Risk) at 95% confidence
             # Use daily_var_95 from state if available, otherwise estimate
-            var_95 = state.daily_var_95 if hasattr(state, 'daily_var_95') and state.daily_var_95 else 0.0
+            var_95 = getattr(state, 'daily_var_95', 0.0) or 0.0
 
             # Expected shortfall (CVaR) - estimate as 1.25x VaR for normal distribution
             expected_shortfall = var_95 * 1.25 if var_95 else 0.0
@@ -317,19 +317,20 @@ class PortfolioStreamHandler:
             beta = getattr(state, 'beta', 1.0)
 
             # Volatility from drawdown data
-            volatility = state.max_drawdown * 2.0 if state.max_drawdown else 0.0
+            max_drawdown = getattr(state, 'max_drawdown', 0.0) or 0.0
+            volatility = max_drawdown * 2.0 if max_drawdown else 0.0
 
             risk_metrics = {
                 "var": var_95,
                 "expected_shortfall": expected_shortfall,
                 "beta": beta,
                 "volatility": volatility,
-                "current_drawdown": state.current_drawdown,
-                "max_drawdown": state.max_drawdown,
-                "largest_position_pct": state.largest_position_pct,
-                "position_count": state.position_count,
-                "margin_used": state.margin_used,
-                "margin_available": state.margin_available,
+                "current_drawdown": getattr(state, 'current_drawdown', 0.0) or 0.0,
+                "max_drawdown": max_drawdown,
+                "largest_position_pct": getattr(state, 'largest_position_pct', 0.0) or 0.0,
+                "position_count": getattr(state, 'position_count', 0),
+                "margin_used": getattr(state, 'margin_used', 0.0) or 0.0,
+                "margin_available": getattr(state, 'margin_available', 0.0) or 0.0,
             }
         except Exception as e:
             logger.warning("risk_metrics_calculation_error", user_id=user_id, error=str(e))

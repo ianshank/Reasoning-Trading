@@ -16,6 +16,7 @@ import os
 import pstats
 import sys
 import time
+import traceback
 import tracemalloc
 from contextlib import contextmanager
 from typing import Any, Callable, Optional, TypeVar, cast
