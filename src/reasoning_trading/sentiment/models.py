@@ -7,12 +7,25 @@ analysis pipeline, from raw news articles to aggregated scores.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+# Mathematical constant for exponential decay (ln(2))
+LN_2 = math.log(2)
+
+# Default thresholds for sentiment labeling
+# These can be overridden by settings in analyzer classes
+DEFAULT_BULLISH_THRESHOLD = 0.1
+DEFAULT_BEARISH_THRESHOLD = -0.1
+
+# Default reliability thresholds
+DEFAULT_CONFIDENCE_THRESHOLD = 0.5
+DEFAULT_MIN_ARTICLES_FOR_RELIABILITY = 3
 
 
 class SentimentLabel(str, Enum):
@@ -122,15 +135,17 @@ class SentimentScore(BaseModel):
         negative: float,
         neutral: float,
         model_name: str,
+        bullish_threshold: float = DEFAULT_BULLISH_THRESHOLD,
+        bearish_threshold: float = DEFAULT_BEARISH_THRESHOLD,
     ) -> SentimentScore:
         """Create score from probability distribution."""
         # Calculate score as weighted combination
         score = positive - negative
 
-        # Determine label
-        if score > 0.1:
+        # Determine label using configurable thresholds
+        if score > bullish_threshold:
             label = SentimentLabel.BULLISH
-        elif score < -0.1:
+        elif score < bearish_threshold:
             label = SentimentLabel.BEARISH
         else:
             label = SentimentLabel.NEUTRAL
@@ -190,18 +205,14 @@ class SentimentResult(BaseModel):
         Returns:
             Score weighted by time decay
         """
-        import math
-
         age = self.article.age_hours()
-        decay_factor = math.exp(-0.693 * age / decay_hours)  # 0.693 = ln(2)
+        decay_factor = math.exp(-LN_2 * age / decay_hours)
         return self.ensemble_score * decay_factor
 
     def get_time_weighted_confidence(self, decay_hours: float) -> float:
         """Get time-weighted confidence."""
-        import math
-
         age = self.article.age_hours()
-        decay_factor = math.exp(-0.693 * age / decay_hours)
+        decay_factor = math.exp(-LN_2 * age / decay_hours)
         return self.ensemble_confidence * decay_factor
 
 
@@ -294,16 +305,19 @@ class AggregatedSentiment(BaseModel):
     @property
     def sentiment_label(self) -> SentimentLabel:
         """Get categorical label for combined score."""
-        if self.combined_score > 0.1:
+        if self.combined_score > DEFAULT_BULLISH_THRESHOLD:
             return SentimentLabel.BULLISH
-        elif self.combined_score < -0.1:
+        elif self.combined_score < DEFAULT_BEARISH_THRESHOLD:
             return SentimentLabel.BEARISH
         return SentimentLabel.NEUTRAL
 
     @property
     def is_reliable(self) -> bool:
         """Check if sentiment signal is reliable based on confidence and article count."""
-        return self.combined_confidence >= 0.5 and self.article_count >= 3
+        return (
+            self.combined_confidence >= DEFAULT_CONFIDENCE_THRESHOLD
+            and self.article_count >= DEFAULT_MIN_ARTICLES_FOR_RELIABILITY
+        )
 
     def to_analyst_signals(self) -> dict[str, float]:
         """Convert to format expected by AnalystSignals."""

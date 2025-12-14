@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
 
 import structlog
 
@@ -63,6 +62,15 @@ class EnsembleAnalyzer(BaseSentimentAnalyzer):
     def add_analyzer(self, analyzer: SentimentAnalyzer) -> None:
         """Add an analyzer to the ensemble."""
         self._analyzers.append(analyzer)
+
+    def _create_neutral_fallback(self) -> SentimentScore:
+        """Create a neutral fallback score when analysis fails."""
+        return SentimentScore.from_probabilities(
+            positive=self._settings.sentiment.neutral_fallback_positive,
+            negative=self._settings.sentiment.neutral_fallback_negative,
+            neutral=self._settings.sentiment.neutral_fallback_neutral,
+            model_name=self.model_name,
+        )
 
     def set_weight(self, model_name: str, weight: float) -> None:
         """Set weight for a specific model."""
@@ -192,9 +200,13 @@ class EnsembleAnalyzer(BaseSentimentAnalyzer):
             weighted_confidence += score.confidence * weight
 
             probs = score.probabilities
-            weighted_positive += probs.get("positive", 0.33) * effective_weight
-            weighted_negative += probs.get("negative", 0.33) * effective_weight
-            weighted_neutral += probs.get("neutral", 0.34) * effective_weight
+            # Use settings for fallback probabilities
+            fallback_pos = self._settings.sentiment.neutral_fallback_positive
+            fallback_neg = self._settings.sentiment.neutral_fallback_negative
+            fallback_neu = self._settings.sentiment.neutral_fallback_neutral
+            weighted_positive += probs.get("positive", fallback_pos) * effective_weight
+            weighted_negative += probs.get("negative", fallback_neg) * effective_weight
+            weighted_neutral += probs.get("neutral", fallback_neu) * effective_weight
 
         if total_weight == 0:
             total_weight = 1.0
@@ -215,10 +227,12 @@ class EnsembleAnalyzer(BaseSentimentAnalyzer):
             final_negative /= prob_total
             final_neutral /= prob_total
 
-        # Determine label
-        if final_score > 0.1:
+        # Determine label using configurable thresholds
+        bullish_threshold = self._settings.sentiment.bullish_threshold
+        bearish_threshold = self._settings.sentiment.bearish_threshold
+        if final_score > bullish_threshold:
             label = SentimentLabel.BULLISH
-        elif final_score < -0.1:
+        elif final_score < bearish_threshold:
             label = SentimentLabel.BEARISH
         else:
             label = SentimentLabel.NEUTRAL
@@ -284,14 +298,7 @@ class EnsembleAnalyzer(BaseSentimentAnalyzer):
             if text_results:
                 combined_results.append(self._combine_results(text_results))
             else:
-                combined_results.append(
-                    SentimentScore.from_probabilities(
-                        positive=0.33,
-                        negative=0.33,
-                        neutral=0.34,
-                        model_name=self.model_name,
-                    )
-                )
+                combined_results.append(self._create_neutral_fallback())
 
         return combined_results
 

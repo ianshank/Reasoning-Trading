@@ -76,6 +76,15 @@ class SentimentService:
         """Get cache TTL in minutes."""
         return self._settings.sentiment.cache_ttl_minutes
 
+    def _create_neutral_fallback(self) -> SentimentScore:
+        """Create a neutral fallback score when analysis fails."""
+        return SentimentScore.from_probabilities(
+            positive=self._settings.sentiment.neutral_fallback_positive,
+            negative=self._settings.sentiment.neutral_fallback_negative,
+            neutral=self._settings.sentiment.neutral_fallback_neutral,
+            model_name=self._analyzer.model_name,
+        )
+
     def clear_cache(self) -> None:
         """Clear the sentiment cache."""
         self._cache.clear()
@@ -391,15 +400,12 @@ class SentimentService:
                 try:
                     score = await self._analyzer.analyze(text)
                     scores.append(score)
-                except Exception:
-                    scores.append(
-                        SentimentScore.from_probabilities(
-                            positive=0.33,
-                            negative=0.33,
-                            neutral=0.34,
-                            model_name=self._analyzer.model_name,
-                        )
+                except Exception as e:
+                    logger.warning(
+                        "Individual sentiment analysis failed",
+                        error=str(e),
                     )
+                    scores.append(self._create_neutral_fallback())
 
         # Create results
         results = []
@@ -417,14 +423,26 @@ class SentimentService:
     async def close(self) -> None:
         """Close all provider connections."""
         for provider in self._providers:
-            if hasattr(provider, "close"):
-                await provider.close()
+            try:
+                if hasattr(provider, "close"):
+                    await provider.close()
+            except Exception as e:
+                logger.warning(
+                    "Error closing provider",
+                    provider=provider.name,
+                    error=str(e),
+                )
 
     async def __aenter__(self) -> SentimentService:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         """Async context manager exit."""
         await self.close()
 

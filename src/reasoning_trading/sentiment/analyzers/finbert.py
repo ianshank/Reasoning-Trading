@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import structlog
 
@@ -19,6 +19,19 @@ from reasoning_trading.sentiment.analyzers.base import (
     BaseSentimentAnalyzer,
 )
 from reasoning_trading.sentiment.models import SentimentLabel, SentimentScore
+
+if TYPE_CHECKING:
+    from transformers import Pipeline
+
+
+@runtime_checkable
+class TransformerPipeline(Protocol):
+    """Protocol for transformer pipeline objects."""
+
+    def __call__(self, text: str | list[str]) -> list[dict[str, Any]]:
+        """Run the pipeline on text."""
+        ...
+
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +62,7 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
         """
         self._settings = settings or get_settings()
         self._model_name = model_name or self.DEFAULT_MODEL
-        self._pipeline: Any = None
+        self._pipeline: TransformerPipeline | None = None
         self._available: bool | None = None
 
     @property
@@ -81,7 +94,7 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
 
         return self._available
 
-    def _get_pipeline(self) -> Any:
+    def _get_pipeline(self) -> TransformerPipeline:
         """Get or create the sentiment pipeline."""
         if self._pipeline is None:
             if not self.is_available():
@@ -166,26 +179,31 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
                 original_error=e,
             )
 
-    def _analyze_sync(self, text: str) -> SentimentScore:
-        """Synchronous analysis for thread pool execution."""
-        pipeline = self._get_pipeline()
-        result = pipeline(text)[0]
+    def _map_result_to_score(self, result: dict[str, Any]) -> SentimentScore:
+        """
+        Map a single pipeline result to a SentimentScore.
 
-        # FinBERT returns: positive, negative, neutral
+        Extracted to avoid code duplication between sync and batch methods.
+        """
         label = result["label"].lower()
         score_value = result["score"]
+
+        # Get probability factors from settings
+        secondary_factor = self._settings.sentiment.secondary_probability_factor
+        neutral_factor = self._settings.sentiment.neutral_probability_factor
 
         # Map to our probability format
         if label == "positive":
             positive = score_value
-            negative = (1 - score_value) * 0.3
-            neutral = (1 - score_value) * 0.7
+            negative = (1 - score_value) * secondary_factor
+            neutral = (1 - score_value) * neutral_factor
         elif label == "negative":
             negative = score_value
-            positive = (1 - score_value) * 0.3
-            neutral = (1 - score_value) * 0.7
+            positive = (1 - score_value) * secondary_factor
+            neutral = (1 - score_value) * neutral_factor
         else:  # neutral
             neutral = score_value
+            # Equal split for non-dominant sentiment
             positive = (1 - score_value) * 0.5
             negative = (1 - score_value) * 0.5
 
@@ -201,6 +219,12 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
             neutral=neutral,
             model_name=self.model_name,
         )
+
+    def _analyze_sync(self, text: str) -> SentimentScore:
+        """Synchronous analysis for thread pool execution."""
+        pipeline = self._get_pipeline()
+        result = pipeline(text)[0]
+        return self._map_result_to_score(result)
 
     async def analyze_batch(self, texts: list[str]) -> list[SentimentScore]:
         """
@@ -253,33 +277,4 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
         """Synchronous batch analysis."""
         pipeline = self._get_pipeline()
         results = pipeline(texts)
-
-        scores = []
-        for result in results:
-            label = result["label"].lower()
-            score_value = result["score"]
-
-            if label == "positive":
-                positive = score_value
-                negative = (1 - score_value) * 0.3
-                neutral = (1 - score_value) * 0.7
-            elif label == "negative":
-                negative = score_value
-                positive = (1 - score_value) * 0.3
-                neutral = (1 - score_value) * 0.7
-            else:
-                neutral = score_value
-                positive = (1 - score_value) * 0.5
-                negative = (1 - score_value) * 0.5
-
-            total = positive + negative + neutral
-            scores.append(
-                SentimentScore.from_probabilities(
-                    positive=positive / total,
-                    negative=negative / total,
-                    neutral=neutral / total,
-                    model_name=self.model_name,
-                )
-            )
-
-        return scores
+        return [self._map_result_to_score(result) for result in results]

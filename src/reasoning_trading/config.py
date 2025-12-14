@@ -323,6 +323,66 @@ class SentimentSettings(BaseSettings):
         description="Max API requests per minute per provider",
     )
 
+    # Sentiment thresholds (avoid magic numbers)
+    bullish_threshold: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=0.5,
+        description="Score threshold for bullish classification",
+    )
+    bearish_threshold: float = Field(
+        default=-0.1,
+        ge=-0.5,
+        le=0.0,
+        description="Score threshold for bearish classification",
+    )
+
+    # Neutral fallback probabilities
+    neutral_fallback_positive: float = Field(
+        default=0.33,
+        ge=0.0,
+        le=1.0,
+        description="Fallback positive probability when analysis fails",
+    )
+    neutral_fallback_negative: float = Field(
+        default=0.33,
+        ge=0.0,
+        le=1.0,
+        description="Fallback negative probability when analysis fails",
+    )
+    neutral_fallback_neutral: float = Field(
+        default=0.34,
+        ge=0.0,
+        le=1.0,
+        description="Fallback neutral probability when analysis fails",
+    )
+
+    # LLM analyzer settings
+    llm_sentiment_model: str = Field(
+        default="claude-3-haiku-20240307",
+        description="Model to use for LLM-based sentiment analysis",
+    )
+    llm_temperature: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Temperature for LLM sentiment analysis",
+    )
+
+    # Probability distribution constants for FinBERT mapping
+    secondary_probability_factor: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=0.5,
+        description="Factor for secondary sentiment probability",
+    )
+    neutral_probability_factor: float = Field(
+        default=0.7,
+        ge=0.5,
+        le=1.0,
+        description="Factor for neutral sentiment probability",
+    )
+
     @field_validator("enabled_providers", mode="before")
     @classmethod
     def parse_providers(cls, v: str | list[str] | list[NewsProviderType]) -> list[NewsProviderType]:

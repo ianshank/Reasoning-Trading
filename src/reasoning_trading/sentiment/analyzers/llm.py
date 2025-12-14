@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import structlog
 
@@ -19,6 +19,19 @@ from reasoning_trading.sentiment.analyzers.base import (
     BaseSentimentAnalyzer,
 )
 from reasoning_trading.sentiment.models import SentimentLabel, SentimentScore
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import BaseChatModel
+
+
+@runtime_checkable
+class ChatModel(Protocol):
+    """Protocol for LangChain chat model objects."""
+
+    async def ainvoke(self, input: str) -> Any:
+        """Async invoke the model."""
+        ...
+
 
 logger = structlog.get_logger(__name__)
 
@@ -66,13 +79,22 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
         """
         self._settings = settings or get_settings()
         self._model = model or self._settings.llm.quick_think_llm
-        self._client: Any = None
+        self._client: ChatModel | None = None
         self._available: bool | None = None
 
     @property
     def name(self) -> str:
         """Get analyzer name."""
         return "LLM"
+
+    def _create_neutral_fallback(self) -> SentimentScore:
+        """Create a neutral fallback score when analysis fails."""
+        return SentimentScore.from_probabilities(
+            positive=self._settings.sentiment.neutral_fallback_positive,
+            negative=self._settings.sentiment.neutral_fallback_negative,
+            neutral=self._settings.sentiment.neutral_fallback_neutral,
+            model_name=self.model_name,
+        )
 
     @property
     def model_name(self) -> str:
@@ -100,7 +122,7 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
 
         return self._available
 
-    async def _get_client(self) -> Any:
+    async def _get_client(self) -> ChatModel:
         """Get or create the LLM client."""
         if self._client is None:
             if not self.is_available():
@@ -118,7 +140,7 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
                     self._client = ChatOpenAI(
                         model=self._model,
                         api_key=self._settings.llm.openai_api_key.get_secret_value(),
-                        temperature=0.1,  # Low temperature for consistency
+                        temperature=self._settings.sentiment.llm_temperature,
                     )
                     logger.debug("Using OpenAI for LLM sentiment analysis")
                 except ImportError:
@@ -132,9 +154,9 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
                     from langchain_anthropic import ChatAnthropic
 
                     self._client = ChatAnthropic(
-                        model="claude-3-haiku-20240307",  # Fast model for sentiment
+                        model=self._settings.sentiment.llm_sentiment_model,
                         api_key=self._settings.llm.anthropic_api_key.get_secret_value(),
-                        temperature=0.1,
+                        temperature=self._settings.sentiment.llm_temperature,
                     )
                     logger.debug("Using Anthropic for LLM sentiment analysis")
                 except ImportError:
@@ -238,18 +260,20 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
             confidence = max(0.0, min(1.0, confidence))
 
             # Calculate probabilities from score
+            secondary_factor = self._settings.sentiment.secondary_probability_factor
             if score > 0:
                 positive = (score + 1) / 2
-                negative = 0.1 * (1 - positive)
+                negative = secondary_factor * (1 - positive)
                 neutral = 1 - positive - negative
             elif score < 0:
                 negative = (-score + 1) / 2
-                positive = 0.1 * (1 - negative)
+                positive = secondary_factor * (1 - negative)
                 neutral = 1 - positive - negative
             else:
-                positive = 0.2
-                negative = 0.2
-                neutral = 0.6
+                # Neutral score - distribute evenly with slight neutral bias
+                positive = self._settings.sentiment.neutral_fallback_positive
+                negative = self._settings.sentiment.neutral_fallback_negative
+                neutral = self._settings.sentiment.neutral_fallback_neutral
 
             return SentimentScore(
                 score=score,
@@ -270,12 +294,7 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
                 error=str(e),
             )
             # Return neutral on parse failure
-            return SentimentScore.from_probabilities(
-                positive=0.33,
-                negative=0.33,
-                neutral=0.34,
-                model_name=self.model_name,
-            )
+            return self._create_neutral_fallback()
 
     async def analyze_batch(self, texts: list[str]) -> list[SentimentScore]:
         """
@@ -300,14 +319,7 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
             for result in batch_results:
                 if isinstance(result, Exception):
                     # Return neutral on failure
-                    results.append(
-                        SentimentScore.from_probabilities(
-                            positive=0.33,
-                            negative=0.33,
-                            neutral=0.34,
-                            model_name=self.model_name,
-                        )
-                    )
+                    results.append(self._create_neutral_fallback())
                 else:
                     results.append(result)
 
