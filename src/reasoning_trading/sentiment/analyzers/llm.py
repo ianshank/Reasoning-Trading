@@ -8,6 +8,7 @@ with reasoning capabilities.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -34,6 +35,21 @@ class ChatModel(Protocol):
 
 
 logger = structlog.get_logger(__name__)
+
+# Security: Maximum response size to prevent DoS
+MAX_RESPONSE_SIZE = 10000
+
+# Security: Patterns that may indicate prompt injection attempts
+PROMPT_INJECTION_PATTERNS = [
+    r"ignore\s+(all\s+)?previous\s+instructions",
+    r"disregard\s+(all\s+)?above",
+    r"new\s+instructions",
+    r"system\s*:\s*",
+    r"assistant\s*:\s*",
+    r"human\s*:\s*",
+    r"<\|im_start\|>",
+    r"<\|im_end\|>",
+]
 
 
 # Prompt template for sentiment analysis
@@ -81,6 +97,8 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
         self._model = model or self._settings.llm.quick_think_llm
         self._client: ChatModel | None = None
         self._available: bool | None = None
+        # Concurrency: Lock to protect lazy client initialization
+        self._init_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -95,6 +113,31 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
             neutral=self._settings.sentiment.neutral_fallback_neutral,
             model_name=self.model_name,
         )
+
+    def _sanitize_for_prompt(self, text: str) -> str:
+        """
+        Sanitize text to prevent prompt injection attacks.
+
+        Removes or neutralizes patterns that could manipulate LLM behavior.
+        """
+        sanitized = text
+
+        # Check for and log potential injection attempts
+        for pattern in PROMPT_INJECTION_PATTERNS:
+            if re.search(pattern, sanitized, re.IGNORECASE):
+                logger.warning(
+                    "Potential prompt injection detected",
+                    pattern=pattern,
+                )
+                # Replace the suspicious pattern
+                sanitized = re.sub(
+                    pattern,
+                    "[FILTERED]",
+                    sanitized,
+                    flags=re.IGNORECASE,
+                )
+
+        return sanitized
 
     @property
     def model_name(self) -> str:
@@ -123,48 +166,52 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
         return self._available
 
     async def _get_client(self) -> ChatModel:
-        """Get or create the LLM client."""
+        """Get or create the LLM client (thread-safe)."""
+        # Double-checked locking pattern for thread safety
         if self._client is None:
-            if not self.is_available():
-                raise AnalyzerError(
-                    message="LLM not available - no API key configured",
-                    analyzer=self.name,
-                    retriable=False,
-                )
+            async with self._init_lock:
+                # Check again inside the lock
+                if self._client is None:
+                    if not self.is_available():
+                        raise AnalyzerError(
+                            message="LLM not available - no API key configured",
+                            analyzer=self.name,
+                            retriable=False,
+                        )
 
-            # Prefer OpenAI
-            if self._settings.llm.openai_api_key is not None:
-                try:
-                    from langchain_openai import ChatOpenAI
+                    # Prefer OpenAI
+                    if self._settings.llm.openai_api_key is not None:
+                        try:
+                            from langchain_openai import ChatOpenAI
 
-                    self._client = ChatOpenAI(
-                        model=self._model,
-                        api_key=self._settings.llm.openai_api_key.get_secret_value(),
-                        temperature=self._settings.sentiment.llm_temperature,
-                    )
-                    logger.debug("Using OpenAI for LLM sentiment analysis")
-                except ImportError:
-                    raise AnalyzerError(
-                        message="langchain-openai not installed",
-                        analyzer=self.name,
-                        retriable=False,
-                    )
-            elif self._settings.llm.anthropic_api_key is not None:
-                try:
-                    from langchain_anthropic import ChatAnthropic
+                            self._client = ChatOpenAI(
+                                model=self._model,
+                                api_key=self._settings.llm.openai_api_key.get_secret_value(),
+                                temperature=self._settings.sentiment.llm_temperature,
+                            )
+                            logger.debug("Using OpenAI for LLM sentiment analysis")
+                        except ImportError:
+                            raise AnalyzerError(
+                                message="langchain-openai not installed",
+                                analyzer=self.name,
+                                retriable=False,
+                            )
+                    elif self._settings.llm.anthropic_api_key is not None:
+                        try:
+                            from langchain_anthropic import ChatAnthropic
 
-                    self._client = ChatAnthropic(
-                        model=self._settings.sentiment.llm_sentiment_model,
-                        api_key=self._settings.llm.anthropic_api_key.get_secret_value(),
-                        temperature=self._settings.sentiment.llm_temperature,
-                    )
-                    logger.debug("Using Anthropic for LLM sentiment analysis")
-                except ImportError:
-                    raise AnalyzerError(
-                        message="langchain-anthropic not installed",
-                        analyzer=self.name,
-                        retriable=False,
-                    )
+                            self._client = ChatAnthropic(
+                                model=self._settings.sentiment.llm_sentiment_model,
+                                api_key=self._settings.llm.anthropic_api_key.get_secret_value(),
+                                temperature=self._settings.sentiment.llm_temperature,
+                            )
+                            logger.debug("Using Anthropic for LLM sentiment analysis")
+                        except ImportError:
+                            raise AnalyzerError(
+                                message="langchain-anthropic not installed",
+                                analyzer=self.name,
+                                retriable=False,
+                            )
 
         return self._client
 
@@ -194,15 +241,18 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
             # Truncate text
             truncated = self._truncate_text(text, self.MAX_TEXT_LENGTH)
 
+            # Security: Sanitize to prevent prompt injection
+            sanitized = self._sanitize_for_prompt(truncated)
+
             # Format prompt
-            prompt = SENTIMENT_PROMPT.format(text=truncated)
+            prompt = SENTIMENT_PROMPT.format(text=sanitized)
 
             # Call LLM
             response = await client.ainvoke(prompt)
             response_text = response.content
 
-            # Parse JSON response
-            result = self._parse_response(response_text)
+            # Parse JSON response with safety checks
+            result = self._parse_response_safe(response_text)
 
             processing_time = (time.perf_counter() - start_time) * 1000
             result.processing_time_ms = processing_time
@@ -226,9 +276,22 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
                 original_error=e,
             )
 
-    def _parse_response(self, response_text: str) -> SentimentScore:
-        """Parse the LLM JSON response into a SentimentScore."""
+    def _parse_response_safe(self, response_text: str) -> SentimentScore:
+        """
+        Safely parse the LLM JSON response into a SentimentScore.
+
+        Includes size validation and schema checks to prevent DoS attacks.
+        """
         try:
+            # Security: Limit response size to prevent DoS
+            if len(response_text) > MAX_RESPONSE_SIZE:
+                logger.warning(
+                    "LLM response too large, truncating",
+                    size=len(response_text),
+                    max_size=MAX_RESPONSE_SIZE,
+                )
+                response_text = response_text[:MAX_RESPONSE_SIZE]
+
             # Try to extract JSON from response
             # Handle cases where model wraps JSON in markdown
             text = response_text.strip()
@@ -236,11 +299,16 @@ class LLMSentimentAnalyzer(BaseSentimentAnalyzer):
                 # Remove markdown code blocks
                 lines = text.split("\n")
                 json_lines = [
-                    l for l in lines if not l.startswith("```")
+                    line for line in lines if not line.startswith("```")
                 ]
                 text = "\n".join(json_lines)
 
             data = json.loads(text)
+
+            # Security: Validate response is a dict (not list/primitive)
+            if not isinstance(data, dict):
+                logger.warning("LLM response is not a JSON object")
+                return self._create_neutral_fallback()
 
             # Extract values with defaults
             sentiment = data.get("sentiment", "neutral").lower()

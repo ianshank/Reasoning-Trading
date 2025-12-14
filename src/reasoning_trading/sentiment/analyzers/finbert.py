@@ -8,6 +8,7 @@ This is a BERT-based model fine-tuned on financial text.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -64,6 +65,8 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
         self._model_name = model_name or self.DEFAULT_MODEL
         self._pipeline: TransformerPipeline | None = None
         self._available: bool | None = None
+        # Concurrency: Lock to protect lazy initialization
+        self._init_lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -95,33 +98,37 @@ class FinBERTAnalyzer(BaseSentimentAnalyzer):
         return self._available
 
     def _get_pipeline(self) -> TransformerPipeline:
-        """Get or create the sentiment pipeline."""
+        """Get or create the sentiment pipeline (thread-safe)."""
+        # Double-checked locking pattern for thread safety
         if self._pipeline is None:
-            if not self.is_available():
-                raise AnalyzerError(
-                    message="FinBERT not available - install transformers",
-                    analyzer=self.name,
-                    retriable=False,
-                )
+            with self._init_lock:
+                # Check again inside the lock
+                if self._pipeline is None:
+                    if not self.is_available():
+                        raise AnalyzerError(
+                            message="FinBERT not available - install transformers",
+                            analyzer=self.name,
+                            retriable=False,
+                        )
 
-            try:
-                from transformers import pipeline
+                    try:
+                        from transformers import pipeline
 
-                logger.info("Loading FinBERT model", model=self._model_name)
-                self._pipeline = pipeline(
-                    "sentiment-analysis",
-                    model=self._model_name,
-                    tokenizer=self._model_name,
-                    device=-1,  # CPU; use 0 for GPU
-                )
-                logger.info("FinBERT model loaded successfully")
-            except Exception as e:
-                raise AnalyzerError(
-                    message=f"Failed to load FinBERT model: {str(e)}",
-                    analyzer=self.name,
-                    retriable=False,
-                    original_error=e,
-                )
+                        logger.info("Loading FinBERT model", model=self._model_name)
+                        self._pipeline = pipeline(
+                            "sentiment-analysis",
+                            model=self._model_name,
+                            tokenizer=self._model_name,
+                            device=-1,  # CPU; use 0 for GPU
+                        )
+                        logger.info("FinBERT model loaded successfully")
+                    except Exception as e:
+                        raise AnalyzerError(
+                            message=f"Failed to load FinBERT model: {str(e)}",
+                            analyzer=self.name,
+                            retriable=False,
+                            original_error=e,
+                        )
 
         return self._pipeline
 

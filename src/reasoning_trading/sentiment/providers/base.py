@@ -7,6 +7,7 @@ enabling pluggable provider architecture.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Protocol, runtime_checkable
@@ -16,6 +17,24 @@ import structlog
 from reasoning_trading.sentiment.models import NewsArticle, NewsSource
 
 logger = structlog.get_logger(__name__)
+
+# Security: Valid symbol pattern (alphanumeric, dash, dot, slash, max 20 chars)
+VALID_SYMBOL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9/.\-]{0,19}$")
+
+# Security: Valid category values (whitelist)
+VALID_CATEGORIES = frozenset({
+    "general",
+    "business",
+    "technology",
+    "finance",
+    "forex",
+    "crypto",
+    "merger",
+    "entertainment",
+    "health",
+    "science",
+    "sports",
+})
 
 
 class NewsProviderError(Exception):
@@ -100,6 +119,10 @@ class NewsProvider(Protocol):
 
     async def health_check(self) -> bool:
         """Perform health check on the provider."""
+        ...
+
+    async def close(self) -> None:
+        """Close provider connections and cleanup resources."""
         ...
 
 
@@ -200,9 +223,48 @@ class BaseNewsProvider(ABC):
         # Record this request
         self._request_times.append(now)
 
+    def _validate_symbol(self, symbol: str) -> str:
+        """
+        Validate and normalize symbol for provider-specific format.
+
+        Args:
+            symbol: Input symbol (e.g., "AAPL", "BTC/USD")
+
+        Returns:
+            Validated and normalized symbol
+
+        Raises:
+            NewsProviderError: If symbol format is invalid
+        """
+        if not symbol or not symbol.strip():
+            raise NewsProviderError(
+                message="Symbol cannot be empty",
+                provider=self.name,
+                retriable=False,
+            )
+
+        symbol = symbol.strip()
+
+        # Security: Validate symbol format to prevent injection
+        if not VALID_SYMBOL_PATTERN.match(symbol):
+            logger.warning(
+                "Invalid symbol format rejected",
+                symbol=symbol[:50],  # Truncate for logging
+                provider=self.name,
+            )
+            raise NewsProviderError(
+                message=f"Invalid symbol format: {symbol[:20]}",
+                provider=self.name,
+                retriable=False,
+            )
+
+        return symbol.upper().replace("/", "")
+
     def _normalize_symbol(self, symbol: str) -> str:
         """
         Normalize symbol for provider-specific format.
+
+        Deprecated: Use _validate_symbol() instead for security.
 
         Args:
             symbol: Input symbol (e.g., "AAPL", "BTC/USD")
@@ -210,5 +272,37 @@ class BaseNewsProvider(ABC):
         Returns:
             Normalized symbol for this provider
         """
-        # Default: just uppercase
-        return symbol.upper().replace("/", "")
+        return self._validate_symbol(symbol)
+
+    def _validate_category(self, category: str | None) -> str | None:
+        """
+        Validate category against whitelist.
+
+        Args:
+            category: News category to validate
+
+        Returns:
+            Validated category (lowercase) or None
+
+        Raises:
+            NewsProviderError: If category is invalid
+        """
+        if category is None:
+            return None
+
+        category_lower = category.lower().strip()
+
+        if category_lower not in VALID_CATEGORIES:
+            logger.warning(
+                "Invalid category rejected",
+                category=category[:50],
+                provider=self.name,
+                valid_categories=list(VALID_CATEGORIES),
+            )
+            raise NewsProviderError(
+                message=f"Invalid category: {category}. Valid: {', '.join(sorted(VALID_CATEGORIES))}",
+                provider=self.name,
+                retriable=False,
+            )
+
+        return category_lower

@@ -70,6 +70,8 @@ class SentimentService:
         self._analyzer = analyzer or create_sentiment_analyzer(self._settings)
         self._aggregator = SentimentAggregator(self._settings)
         self._cache: dict[str, SentimentCache] = {}
+        # Concurrency: Lock to protect cache access from race conditions
+        self._cache_lock = asyncio.Lock()
 
     @property
     def cache_ttl_minutes(self) -> int:
@@ -85,9 +87,10 @@ class SentimentService:
             model_name=self._analyzer.model_name,
         )
 
-    def clear_cache(self) -> None:
-        """Clear the sentiment cache."""
-        self._cache.clear()
+    async def clear_cache(self) -> None:
+        """Clear the sentiment cache (thread-safe)."""
+        async with self._cache_lock:
+            self._cache.clear()
         logger.debug("Sentiment cache cleared")
 
     async def get_sentiment(
@@ -105,9 +108,9 @@ class SentimentService:
         Returns:
             AggregatedSentiment with combined scores
         """
-        # Check cache
+        # Check cache (with lock for thread safety)
         if not force_refresh:
-            cached = self._get_cached(symbol)
+            cached = await self._get_cached_safe(symbol)
             if cached is not None:
                 logger.debug(
                     "Returning cached sentiment",
@@ -137,11 +140,12 @@ class SentimentService:
             results=results,
         )
 
-        # Cache results
-        self._cache[symbol] = SentimentCache(
-            sentiment=aggregated,
-            ttl_minutes=self.cache_ttl_minutes,
-        )
+        # Cache results (with lock for thread safety)
+        async with self._cache_lock:
+            self._cache[symbol] = SentimentCache(
+                sentiment=aggregated,
+                ttl_minutes=self.cache_ttl_minutes,
+            )
 
         return aggregated
 
@@ -253,10 +257,18 @@ class SentimentService:
         )
 
     def _get_cached(self, symbol: str) -> AggregatedSentiment | None:
-        """Get cached sentiment if not expired."""
+        """Get cached sentiment if not expired (not thread-safe)."""
         cached = self._cache.get(symbol)
         if cached is not None and not cached.is_expired():
             return cached.sentiment
+        return None
+
+    async def _get_cached_safe(self, symbol: str) -> AggregatedSentiment | None:
+        """Get cached sentiment if not expired (thread-safe with lock)."""
+        async with self._cache_lock:
+            cached = self._cache.get(symbol)
+            if cached is not None and not cached.is_expired():
+                return cached.sentiment
         return None
 
     async def _fetch_news(
