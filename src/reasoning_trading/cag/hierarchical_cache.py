@@ -8,10 +8,13 @@ weighting across all sub-agents for optimal decision retrieval.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from pydantic import Field
@@ -623,7 +626,11 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
                 successful_only=True,
             )
             return patterns, (time.perf_counter() - start) * 1000
-        except Exception:
+        except asyncio.TimeoutError:
+            logger.warning("Pattern RAG query timeout for symbol %s", state.symbol)
+            return [], (time.perf_counter() - start) * 1000
+        except Exception as e:
+            logger.error("Pattern RAG query failed: %s", e, exc_info=True)
             return [], (time.perf_counter() - start) * 1000
 
     async def _query_strategy_rag(
@@ -639,7 +646,11 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
                 top_k=3,
             )
             return strategies, (time.perf_counter() - start) * 1000
-        except Exception:
+        except asyncio.TimeoutError:
+            logger.warning("Strategy RAG query timeout for symbol %s", state.symbol)
+            return [], (time.perf_counter() - start) * 1000
+        except Exception as e:
+            logger.error("Strategy RAG query failed: %s", e, exc_info=True)
             return [], (time.perf_counter() - start) * 1000
 
     async def _query_analyst_signals(
@@ -684,7 +695,11 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
                     return direction, avg_confidence, (time.perf_counter() - start) * 1000
 
             return "", 0.0, (time.perf_counter() - start) * 1000
-        except Exception:
+        except asyncio.TimeoutError:
+            logger.warning("Analyst cache query timeout for symbol %s", state.symbol)
+            return "", 0.0, (time.perf_counter() - start) * 1000
+        except Exception as e:
+            logger.error("Analyst cache query failed: %s", e, exc_info=True)
             return "", 0.0, (time.perf_counter() - start) * 1000
 
     def _compute_ensemble(
@@ -739,12 +754,26 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
 
         for source in sources:
             direction = source.action_direction
+            if not direction:  # Skip sources with empty direction
+                continue
             if direction not in direction_weights:
                 direction_weights[direction] = 0.0
                 direction_confidences[direction] = []
 
             direction_weights[direction] += source.weight
             direction_confidences[direction].append(source.confidence)
+
+        # Handle edge case: no valid directions
+        if not direction_weights:
+            logger.warning("No valid directions from ensemble sources")
+            return {
+                "direction": "hold",
+                "confidence": 0.0,
+                "primary_source": sources[0].source_name if sources else "",
+                "cache_level": CacheLevel.L1_EXACT,
+                "similarity": 0.0,
+                "agreement": 0.0,
+            }
 
         # Find winning direction
         best_direction = max(direction_weights, key=direction_weights.get)
@@ -755,10 +784,12 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
         ensemble_confidence = np.mean(conf_list) if conf_list else 0.0
 
         # Find primary source (highest weight for winning direction)
-        primary_source = max(
-            [s for s in sources if s.action_direction == best_direction],
-            key=lambda s: s.weight,
-        )
+        matching_sources = [s for s in sources if s.action_direction == best_direction]
+        if not matching_sources:
+            # Fallback to highest weight source overall
+            primary_source = max(sources, key=lambda s: s.weight)
+        else:
+            primary_source = max(matching_sources, key=lambda s: s.weight)
 
         # Build reasoning
         reasoning_parts = [f"Ensemble decision: {best_direction}"]

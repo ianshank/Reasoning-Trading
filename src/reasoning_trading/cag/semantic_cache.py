@@ -8,10 +8,13 @@ allowing cache hits on similar market states even without exact matches.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -326,7 +329,17 @@ class SemanticDecisionCache(BaseCAG[CachedDecision]):
         if l2_entries:
             # Encode state to text and get embedding
             state_text = self._encode_state(state)
-            query_embedding = self.embedding_provider.encode_single(state_text)
+            try:
+                query_embedding = self.embedding_provider.encode_single(state_text)
+            except Exception as e:
+                logger.warning("Embedding provider failed for cache lookup: %s", e)
+                latency = (time.perf_counter() - start_time) * 1000
+                self._record_miss(latency)
+                return CacheHit(
+                    found=False,
+                    lookup_time_ms=latency,
+                    query_hash=state_hash,
+                )
 
             best_match = None
             best_similarity = 0.0
@@ -454,8 +467,13 @@ class SemanticDecisionCache(BaseCAG[CachedDecision]):
         # Store in L2 (semantic)
         if state is not None:
             state_text = self._encode_state(state)
-            embedding = self.embedding_provider.encode_single(state_text)
-            entry.embedding = embedding
+            try:
+                embedding = self.embedding_provider.encode_single(state_text)
+                entry.embedding = embedding
+            except Exception as e:
+                logger.warning("Embedding provider failed for cache store: %s", e)
+                # Continue without L2 storage - L1 will still work
+                return key
 
             partition_key = self._get_partition_key(state)
             if partition_key not in self._l2_cache:
@@ -564,7 +582,11 @@ class SemanticDecisionCache(BaseCAG[CachedDecision]):
             return []
 
         state_text = self._encode_state(state)
-        query_embedding = self.embedding_provider.encode_single(state_text)
+        try:
+            query_embedding = self.embedding_provider.encode_single(state_text)
+        except Exception as e:
+            logger.warning("Embedding provider failed for similar decisions: %s", e)
+            return []
 
         results = []
         for stored_embedding, entry in l2_entries:

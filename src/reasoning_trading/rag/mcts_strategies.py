@@ -85,6 +85,14 @@ class MCTSStrategyConfig(BaseSettings):
         description="Include action parameters in path encoding",
     )
 
+    # Eviction settings
+    eviction_retention_rate: float = Field(
+        default=0.8,
+        ge=0.5,
+        le=0.95,
+        description="Fraction of strategies to retain during eviction (best by Sharpe)",
+    )
+
 
 @dataclass
 class MCTSStrategy:
@@ -296,9 +304,11 @@ class MCTSStrategy:
         """Compute maximum depth of tree."""
         if not node.children:
             return depth
-        return max(
-            MCTSStrategy._compute_tree_depth(child, depth + 1) for child in node.children
-        )
+        child_depths = [
+            MCTSStrategy._compute_tree_depth(child, depth + 1)
+            for child in node.children
+        ]
+        return max(child_depths) if child_depths else depth
 
 
 class MCTSStrategyRAG(BaseRAG[MCTSStrategy]):
@@ -430,7 +440,7 @@ class MCTSStrategyRAG(BaseRAG[MCTSStrategy]):
 
         # Sort by Sharpe, keep best performers
         strategies.sort(key=lambda x: x[1].outcome_sharpe, reverse=True)
-        keep_count = int(len(strategies) * 0.8)
+        keep_count = int(len(strategies) * self.strategy_config.eviction_retention_rate)
         self._strategies[symbol] = strategies[:keep_count]
 
     async def retrieve(

@@ -99,6 +99,14 @@ class TradingPatternConfig(BaseSettings):
         description="Similarity threshold for deduplication",
     )
 
+    # Eviction settings
+    eviction_retention_rate: float = Field(
+        default=0.8,
+        ge=0.5,
+        le=0.95,
+        description="Fraction of patterns to retain during eviction (best by Sharpe)",
+    )
+
 
 @dataclass
 class TradingPattern:
@@ -438,7 +446,7 @@ class TradingPatternRAG(BaseRAG[TradingPattern]):
         patterns.sort(key=lambda x: x[1].outcome_sharpe, reverse=True)
 
         # Keep top 80%
-        keep_count = int(len(patterns) * 0.8)
+        keep_count = int(len(patterns) * self.pattern_config.eviction_retention_rate)
         self._patterns[symbol] = patterns[:keep_count]
 
     async def retrieve(

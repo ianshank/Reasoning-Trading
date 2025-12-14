@@ -8,11 +8,14 @@ significantly reducing LLM API calls and costs.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -417,7 +420,18 @@ class AnalystResponseCAG(BaseCAG[CachedAnalystResponse]):
 
         if l2_entries:
             context_text = self._encode_context(analyst_type, symbol, context)
-            query_embedding = self.embedding_provider.encode_single(context_text)
+            try:
+                query_embedding = self.embedding_provider.encode_single(context_text)
+            except Exception as e:
+                logger.warning("Embedding provider failed for analyst cache lookup: %s", e)
+                self._analyst_stats[analyst_type]["misses"] += 1
+                latency = (time.perf_counter() - start_time) * 1000
+                self._record_miss(latency)
+                return CacheHit(
+                    found=False,
+                    lookup_time_ms=latency,
+                    query_hash=context_hash,
+                )
             threshold = self._get_analyst_threshold(analyst_type)
 
             best_match = None
@@ -555,8 +569,13 @@ class AnalystResponseCAG(BaseCAG[CachedAnalystResponse]):
         # Store in L2
         if context:
             context_text = self._encode_context(analyst_type, symbol, context)
-            embedding = self.embedding_provider.encode_single(context_text)
-            entry.embedding = embedding
+            try:
+                embedding = self.embedding_provider.encode_single(context_text)
+                entry.embedding = embedding
+            except Exception as e:
+                logger.warning("Embedding provider failed for analyst cache store: %s", e)
+                # Continue without L2 storage - L1 will still work
+                return entry_key
 
             cache_key = (analyst_type, symbol)
             if cache_key not in self._analyst_cache:

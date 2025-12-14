@@ -118,6 +118,14 @@ class FinancialKnowledgeConfig(BaseSettings):
         description="Maximum chunks per document",
     )
 
+    # Eviction settings
+    eviction_retention_rate: float = Field(
+        default=0.8,
+        ge=0.5,
+        le=0.95,
+        description="Fraction of documents to retain during eviction",
+    )
+
     # Source quality scores (0-1)
     default_source_quality: float = Field(
         default=0.5,
@@ -398,7 +406,7 @@ class FinancialKnowledgeRAG(BaseRAG[FinancialDocument]):
         # If still over capacity, remove oldest
         if len(docs) >= self.knowledge_config.max_documents_per_type:
             docs.sort(key=lambda x: x[1].ingested_at, reverse=True)
-            keep_count = int(len(docs) * 0.8)
+            keep_count = int(len(docs) * self.knowledge_config.eviction_retention_rate)
             docs = docs[:keep_count]
 
         self._documents[doc_type] = docs
