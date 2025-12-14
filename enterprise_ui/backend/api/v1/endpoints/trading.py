@@ -10,11 +10,11 @@ This module provides REST API endpoints for:
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from reasoning_trading.core.actions import TradingAction, TradingDirection
 from reasoning_trading.core.state import AnalystSignals, TradingState
@@ -33,6 +33,8 @@ router = APIRouter(prefix="/trading", tags=["trading"])
 class AnalyzeRequest(BaseModel):
     """Request for multi-agent analysis."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     symbol: str = Field(..., description="Trading symbol (e.g., AAPL, BTC)")
     current_price: float = Field(..., gt=0, description="Current market price")
     include_fundamentals: bool = Field(default=True, description="Include fundamental analysis")
@@ -42,6 +44,8 @@ class AnalyzeRequest(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     """Response from multi-agent analysis."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     symbol: str
     analyst_signals: dict[str, Any]
@@ -53,6 +57,8 @@ class AnalyzeResponse(BaseModel):
 class DecideRequest(BaseModel):
     """Request for trading decision using MCTS."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     symbol: str
     current_price: float = Field(..., gt=0)
     max_simulations: int = Field(default=1000, ge=1, le=10000)
@@ -62,6 +68,8 @@ class DecideRequest(BaseModel):
 
 class DecideResponse(BaseModel):
     """Response from MCTS decision."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     symbol: str
     action: dict[str, Any]
@@ -75,10 +83,12 @@ class DecideResponse(BaseModel):
 class ExecuteRequest(BaseModel):
     """Request to execute a trade."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     symbol: str
-    direction: str = Field(..., description="Trade direction: buy, sell, hold, short, cover")
+    direction: Literal["buy", "sell", "hold", "short", "cover"] = Field(..., description="Trade direction: buy, sell, hold, short, cover")
     quantity: float = Field(..., gt=0)
-    order_type: str = Field(default="market", description="Order type: market, limit, stop")
+    order_type: Literal["market", "limit", "stop"] = Field(default="market", description="Order type: market, limit, stop")
     limit_price: float | None = Field(default=None, gt=0)
     stop_loss_pct: float | None = Field(default=None, ge=0, le=0.5)
     take_profit_pct: float | None = Field(default=None, ge=0, le=1.0)
@@ -86,6 +96,8 @@ class ExecuteRequest(BaseModel):
 
 class ExecuteResponse(BaseModel):
     """Response from trade execution."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     symbol: str
     direction: str
@@ -101,6 +113,8 @@ class ExecuteResponse(BaseModel):
 class SignalsResponse(BaseModel):
     """Response with analyst signals for a symbol."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     symbol: str
     signals: dict[str, Any]
     timestamp: datetime
@@ -108,6 +122,8 @@ class SignalsResponse(BaseModel):
 
 class StateResponse(BaseModel):
     """Response with trading state for a symbol."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     symbol: str
     current_price: float

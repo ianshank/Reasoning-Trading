@@ -14,7 +14,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from reasoning_trading.services.portfolio import PortfolioService
 
@@ -28,6 +28,8 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 # Request/Response Models
 class PortfolioStateResponse(BaseModel):
     """Portfolio state response."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     cash_balance: float
     portfolio_value: float
@@ -44,6 +46,8 @@ class PortfolioStateResponse(BaseModel):
 
 class PositionResponse(BaseModel):
     """Individual position response."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     symbol: str
     quantity: float
@@ -62,6 +66,8 @@ class PositionResponse(BaseModel):
 class PositionsResponse(BaseModel):
     """All positions response."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     positions: list[PositionResponse]
     total_value: float
     total_pnl: float
@@ -71,6 +77,8 @@ class PositionsResponse(BaseModel):
 
 class RiskMetricsResponse(BaseModel):
     """Risk metrics response."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     portfolio_value: float
     cash_balance: float
@@ -90,6 +98,8 @@ class RiskMetricsResponse(BaseModel):
 class RiskCheckRequest(BaseModel):
     """Risk check request."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     symbol: str
     direction: str
     position_value: float = Field(..., gt=0)
@@ -97,6 +107,8 @@ class RiskCheckRequest(BaseModel):
 
 class RiskCheckResponse(BaseModel):
     """Risk check response."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     can_trade: bool
     reason: str

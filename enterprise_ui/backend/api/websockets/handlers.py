@@ -7,6 +7,7 @@ broadcast utilities, and heartbeat handling for all WebSocket endpoints.
 
 import asyncio
 import json
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
@@ -249,11 +250,28 @@ class ConnectionManager:
         success_count = 0
         failed_connections = []
 
-        for connection_id in connections:
-            if await self.send_personal_message(connection_id, message):
-                success_count += 1
-            else:
-                failed_connections.append(connection_id)
+        # Use TaskGroup for concurrent sends
+        try:
+            async with asyncio.TaskGroup() as tg:
+                # Create tasks for all sends
+                tasks = {
+                    connection_id: tg.create_task(
+                        self.send_personal_message(connection_id, message)
+                    )
+                    for connection_id in connections
+                }
+
+            # Count successes from completed tasks
+            for connection_id, task in tasks.items():
+                if task.result():
+                    success_count += 1
+                else:
+                    failed_connections.append(connection_id)
+
+        except* Exception as eg:
+            # Handle exceptions from any failed tasks
+            for exc in eg.exceptions:
+                logger.error("broadcast_task_error", error=str(exc))
 
         logger.debug(
             "broadcast_completed",
@@ -287,9 +305,26 @@ class ConnectionManager:
         connections = self.user_connections[user_id].copy()
         success_count = 0
 
-        for connection_id in connections:
-            if await self.send_personal_message(connection_id, message):
-                success_count += 1
+        # Use TaskGroup for concurrent sends
+        try:
+            async with asyncio.TaskGroup() as tg:
+                # Create tasks for all sends
+                tasks = {
+                    connection_id: tg.create_task(
+                        self.send_personal_message(connection_id, message)
+                    )
+                    for connection_id in connections
+                }
+
+            # Count successes from completed tasks
+            for task in tasks.values():
+                if task.result():
+                    success_count += 1
+
+        except* Exception as eg:
+            # Handle exceptions from any failed tasks
+            for exc in eg.exceptions:
+                logger.error("user_broadcast_task_error", error=str(exc))
 
         logger.debug(
             "user_broadcast_completed",
@@ -320,9 +355,26 @@ class ConnectionManager:
 
         success_count = 0
 
-        for connection_id in connections:
-            if await self.send_personal_message(connection_id, message):
-                success_count += 1
+        # Use TaskGroup for concurrent sends
+        try:
+            async with asyncio.TaskGroup() as tg:
+                # Create tasks for all sends
+                tasks = {
+                    connection_id: tg.create_task(
+                        self.send_personal_message(connection_id, message)
+                    )
+                    for connection_id in connections
+                }
+
+            # Count successes from completed tasks
+            for task in tasks.values():
+                if task.result():
+                    success_count += 1
+
+        except* Exception as eg:
+            # Handle exceptions from any failed tasks
+            for exc in eg.exceptions:
+                logger.error("broadcast_all_task_error", error=str(exc))
 
         logger.debug(
             "broadcast_all_completed",
@@ -350,7 +402,7 @@ class ConnectionManager:
         result = await self.send_personal_message(connection_id, message)
 
         if result:
-            self.last_heartbeat[connection_id] = asyncio.get_event_loop().time()
+            self.last_heartbeat[connection_id] = time.perf_counter()
 
         return result
 
@@ -370,7 +422,7 @@ class ConnectionManager:
 
         while not self._shutdown:
             try:
-                current_time = asyncio.get_event_loop().time()
+                current_time = time.perf_counter()
                 stale_connections = []
 
                 for connection_id in list(self.active_connections.keys()):
@@ -393,6 +445,9 @@ class ConnectionManager:
 
                 await asyncio.sleep(interval)
 
+            except asyncio.CancelledError:
+                logger.info("heartbeat_loop_cancelled")
+                break
             except Exception as e:
                 logger.error(
                     "heartbeat_loop_error",

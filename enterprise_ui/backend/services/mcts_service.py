@@ -142,14 +142,12 @@ class MCTSService:
             try:
                 if config.time_budget_ms:
                     timeout_seconds = config.time_budget_ms / 1000.0 + 5.0  # Add buffer
-                    result = await asyncio.wait_for(
-                        tree.search(state, action_space),
-                        timeout=timeout_seconds,
-                    )
+                    async with asyncio.timeout(timeout_seconds):
+                        result = await tree.search(state, action_space)
                 else:
                     result = await tree.search(state, action_space)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("mcts_search_timeout", search_id=search_id)
                 raise TimeoutException("MCTS search", config.time_budget_ms or 0)
 
@@ -253,14 +251,12 @@ class MCTSService:
             try:
                 if config.total_time_budget_ms:
                     timeout_seconds = config.total_time_budget_ms / 1000.0 + 5.0
-                    result = await asyncio.wait_for(
-                        tree.search(state, target_level),
-                        timeout=timeout_seconds,
-                    )
+                    async with asyncio.timeout(timeout_seconds):
+                        result = await tree.search(state, target_level)
                 else:
                     result = await tree.search(state, target_level)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("hierarchical_mcts_search_timeout", search_id=search_id)
                 raise TimeoutException("Hierarchical MCTS search", config.total_time_budget_ms or 0)
 

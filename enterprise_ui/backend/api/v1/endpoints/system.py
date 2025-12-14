@@ -12,12 +12,12 @@ This module provides REST API endpoints for:
 import platform
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import psutil
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from reasoning_trading.config import Settings, get_settings
 from reasoning_trading.lambda_arch.coordinator import LambdaCoordinator
@@ -31,7 +31,9 @@ router = APIRouter(prefix="/system", tags=["system"])
 class HealthCheckResponse(BaseModel):
     """Health check response."""
 
-    status: str = Field(..., description="Health status: healthy, degraded, unhealthy")
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    status: Literal["healthy", "degraded", "unhealthy"] = Field(..., description="Health status: healthy, degraded, unhealthy")
     timestamp: datetime
     uptime_seconds: float
     version: str = "1.0.0"
@@ -41,6 +43,8 @@ class HealthCheckResponse(BaseModel):
 class ReadinessCheckResponse(BaseModel):
     """Readiness check response."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     ready: bool
     timestamp: datetime
     checks: dict[str, bool]
@@ -49,6 +53,8 @@ class ReadinessCheckResponse(BaseModel):
 
 class SystemConfigResponse(BaseModel):
     """System configuration response."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     trading_mode: str
     risk_profile: str
@@ -62,6 +68,8 @@ class SystemConfigResponse(BaseModel):
 class BatchTriggerRequest(BaseModel):
     """Batch recomputation trigger request."""
 
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
     symbols: list[str] = Field(..., description="Symbols to recompute")
     reason: str = Field(default="manual", description="Trigger reason")
     priority: str = Field(default="normal", description="Priority: low, normal, high")
@@ -69,6 +77,8 @@ class BatchTriggerRequest(BaseModel):
 
 class BatchTriggerResponse(BaseModel):
     """Batch recomputation trigger response."""
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
 
     job_id: str
     symbols: list[str]
@@ -80,7 +90,9 @@ class BatchTriggerResponse(BaseModel):
 class SystemStatusResponse(BaseModel):
     """System status and diagnostics."""
 
-    status: str
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    status: Literal["healthy", "degraded", "unhealthy"]
     uptime_seconds: float
     cpu_usage_percent: float
     memory_usage_percent: float
@@ -563,7 +575,7 @@ async def get_system_status() -> SystemStatusResponse:
         elif cpu_percent < 90 and memory.percent < 90:
             overall_status = "degraded"
         else:
-            overall_status = "critical"
+            overall_status = "unhealthy"
 
         return SystemStatusResponse(
             status=overall_status,

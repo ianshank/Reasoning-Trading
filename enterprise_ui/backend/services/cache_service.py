@@ -8,7 +8,7 @@ MCTS results, and other expensive computations.
 import json
 import pickle
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from redis.asyncio import Redis
@@ -56,7 +56,7 @@ class CacheService:
         """Create prefixed cache key."""
         return f"{self.key_prefix}:{key}"
 
-    async def get(self, key: str, use_pickle: bool = False) -> Optional[Any]:
+    async def get(self, key: str, use_pickle: bool = False) -> Any | None:
         """
         Get value from cache.
 
@@ -102,7 +102,7 @@ class CacheService:
         self,
         key: str,
         value: Any,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
         use_pickle: bool = False,
     ) -> bool:
         """
@@ -248,7 +248,7 @@ class CacheService:
             logger.error("cache_clear_error", error=str(e))
             raise CacheServiceException("Failed to clear cache", {"error": str(e)})
 
-    async def get_ttl(self, key: str) -> Optional[int]:
+    async def get_ttl(self, key: str) -> int | None:
         """
         Get remaining TTL for a key.
 
@@ -305,7 +305,7 @@ class CacheService:
         self,
         key: str,
         compute_fn: Any,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
         use_pickle: bool = False,
     ) -> Any:
         """

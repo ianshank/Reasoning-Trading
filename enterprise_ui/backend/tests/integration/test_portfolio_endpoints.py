@@ -452,12 +452,8 @@ class TestPortfolioIntegration:
                 "portfolio_value" in state
                 and "portfolio_value" in metrics
             ):
-                assert (
-                    abs(
-                        state["portfolio_value"]
-                        - metrics["portfolio_value"]
-                    )
-                    < 0.01
+                assert state["portfolio_value"] == pytest.approx(
+                    metrics["portfolio_value"], abs=0.01
                 )
 
 

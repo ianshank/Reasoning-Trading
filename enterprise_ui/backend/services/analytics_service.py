@@ -5,6 +5,7 @@ Integrates with LambdaCoordinator to provide performance metrics,
 layer statistics, and cache analytics.
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -256,12 +257,20 @@ class AnalyticsService:
             AnalyticsServiceException: On aggregation errors
         """
         try:
-            # Gather all metrics
-            lambda_stats = await self.get_lambda_statistics()
-            speed_metrics = await self.get_speed_layer_metrics()
-            batch_stats = await self.get_batch_layer_statistics()
-            cache_stats = await self.get_cache_statistics()
-            serving_stats = await self.get_serving_layer_statistics()
+            # Gather all metrics in parallel using TaskGroup
+            async with asyncio.TaskGroup() as tg:
+                lambda_task = tg.create_task(self.get_lambda_statistics())
+                speed_task = tg.create_task(self.get_speed_layer_metrics())
+                batch_task = tg.create_task(self.get_batch_layer_statistics())
+                cache_task = tg.create_task(self.get_cache_statistics())
+                serving_task = tg.create_task(self.get_serving_layer_statistics())
+
+            # Extract results from completed tasks
+            lambda_stats = lambda_task.result()
+            speed_metrics = speed_task.result()
+            batch_stats = batch_task.result()
+            cache_stats = cache_task.result()
+            serving_stats = serving_task.result()
 
             aggregated = {
                 "lambda": lambda_stats,
@@ -283,11 +292,13 @@ class AnalyticsService:
 
             return aggregated
 
-        except Exception as e:
-            logger.error("aggregated_metrics_failed", error=str(e))
+        except* Exception as eg:
+            # Handle exception groups from TaskGroup
+            errors = [str(exc) for exc in eg.exceptions]
+            logger.error("aggregated_metrics_failed", errors=errors)
             raise AnalyticsServiceException(
                 "Failed to get aggregated metrics",
-                {"error": str(e)},
+                {"errors": errors},
             )
 
     def _calculate_health_score(self, metrics: dict[str, Any]) -> float:

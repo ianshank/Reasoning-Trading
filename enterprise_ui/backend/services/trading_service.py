@@ -6,7 +6,7 @@ a unified interface for trading operations.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -39,10 +39,10 @@ class TradingService:
 
     def __init__(
         self,
-        trading_adapter: Optional[TradingServiceAdapter] = None,
-        market_data_service: Optional[MarketDataService] = None,
-        cache_service: Optional[CacheService] = None,
-        settings: Optional[Settings] = None,
+        trading_adapter: TradingServiceAdapter | None = None,
+        market_data_service: MarketDataService | None = None,
+        cache_service: CacheService | None = None,
+        settings: Settings | None = None,
         trading_mode: TradingMode = TradingMode.PAPER,
     ):
         """
@@ -101,7 +101,7 @@ class TradingService:
     async def analyze_symbol(
         self,
         symbol: str,
-        date: Optional[str] = None,
+        date: str | None = None,
         use_cache: bool = True,
     ) -> dict[str, Any]:
         """
@@ -190,7 +190,7 @@ class TradingService:
     async def make_decision(
         self,
         symbol: str,
-        analysis: Optional[dict[str, Any]] = None,
+        analysis: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Make a trading decision based on analysis.
@@ -362,7 +362,7 @@ class TradingService:
     async def get_analyst_signals(
         self,
         symbol: str,
-        date: Optional[str] = None,
+        date: str | None = None,
     ) -> AnalystSignals:
         """
         Get analyst signals for a symbol.

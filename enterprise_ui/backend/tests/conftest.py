@@ -64,14 +64,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "websocket: WebSocket tests")
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
 # ============================================================================
 # Application & Client Fixtures
 # ============================================================================
@@ -148,8 +140,10 @@ async def cache_service(mock_redis: FakeRedis) -> CacheService:
 
 @pytest.fixture
 def mock_trading_adapter() -> Mock:
-    """Create mock trading adapter."""
-    adapter = Mock()
+    """Create mock trading adapter with spec for type safety."""
+    from reasoning_trading.services.adapter import TradingAdapter
+
+    adapter = Mock(spec=TradingAdapter)
     adapter._initialize = AsyncMock()
     adapter._cleanup = AsyncMock()
     adapter.get_trading_signal = AsyncMock(
@@ -201,8 +195,10 @@ def mock_trading_adapter() -> Mock:
 
 @pytest.fixture
 def mock_market_data() -> Mock:
-    """Create mock market data service."""
-    market_data = Mock()
+    """Create mock market data service with spec for type safety."""
+    from reasoning_trading.services.market_data import MarketDataService
+
+    market_data = Mock(spec=MarketDataService)
     market_data.get_historical_bars = AsyncMock(return_value=[])
     market_data.calculate_indicators = Mock(
         return_value=Mock(

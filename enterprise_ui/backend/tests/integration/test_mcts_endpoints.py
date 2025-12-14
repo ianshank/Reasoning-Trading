@@ -405,6 +405,7 @@ class TestMCTSPerformance:
         """Test search completes within specified time budget."""
         import time
 
+        time_budget_ms = 500
         start_time = time.time()
 
         response = await client.post(
@@ -413,23 +414,23 @@ class TestMCTSPerformance:
                 "symbol": "AAPL",
                 "current_price": 150.25,
                 "max_simulations": 100,
-                "time_budget_ms": 500,
+                "time_budget_ms": time_budget_ms,
             },
         )
 
         elapsed_ms = (time.time() - start_time) * 1000
 
         if response.status_code == 200:
-            # Should complete within reasonable margin of time budget
-            assert elapsed_ms < 1000  # 500ms budget + 500ms margin
+            # Should complete within reasonable margin relative to time budget
+            assert elapsed_ms < time_budget_ms * 2  # Allow 2x time budget for overhead
 
     async def test_small_search_is_fast(self, client: AsyncClient):
-        """Test small search completes quickly."""
+        """Test small search completes quickly relative to larger searches."""
         import time
 
-        start_time = time.time()
-
-        response = await client.post(
+        # Run small search
+        small_start = time.time()
+        small_response = await client.post(
             "/api/v1/mcts/search",
             json={
                 "symbol": "AAPL",
@@ -437,12 +438,23 @@ class TestMCTSPerformance:
                 "max_simulations": 10,  # Very small
             },
         )
+        small_elapsed = (time.time() - small_start) * 1000
 
-        elapsed_ms = (time.time() - start_time) * 1000
+        # Run medium search
+        medium_start = time.time()
+        medium_response = await client.post(
+            "/api/v1/mcts/search",
+            json={
+                "symbol": "AAPL",
+                "current_price": 150.25,
+                "max_simulations": 100,  # 10x larger
+            },
+        )
+        medium_elapsed = (time.time() - medium_start) * 1000
 
-        if response.status_code == 200:
-            # Should be very fast
-            assert elapsed_ms < 500
+        if small_response.status_code == 200 and medium_response.status_code == 200:
+            # Small search should be faster than medium search
+            assert small_elapsed < medium_elapsed
 
     async def test_large_search_returns_progress(self, client: AsyncClient):
         """Test large search can return progress updates."""

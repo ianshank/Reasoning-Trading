@@ -21,11 +21,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from enterprise_ui.backend.config import get_backend_settings
+from enterprise_ui.backend.core.errors import ErrorCode, ProblemDetail
 from enterprise_ui.backend.core.logging import configure_logging, get_logger
 from enterprise_ui.backend.dependencies import close_redis_client
 from enterprise_ui.backend.middleware.logging_middleware import setup_middleware
+from enterprise_ui.backend.middleware.rate_limiting import (
+    setup_rate_limiting,
+    websocket_rate_limiter,
+)
+from enterprise_ui.backend.middleware.security_headers import setup_security_headers
 
 logger = get_logger(__name__)
+
+# Global reference to rate limit middleware for startup/shutdown
+_rate_limit_middleware = None
 
 
 @asynccontextmanager
@@ -75,10 +84,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("application_started", message="Ready to accept requests")
 
+    # Start rate limiting cleanup tasks
+    global _rate_limit_middleware
+    if _rate_limit_middleware:
+        await _rate_limit_middleware.startup()
+        logger.info("rate_limiting_cleanup_tasks_started")
+
+    # Start WebSocket rate limiter cleanup
+    await websocket_rate_limiter.startup()
+    logger.info("websocket_rate_limiter_cleanup_started")
+
     yield
 
     # --- Shutdown ---
     logger.info("application_shutting_down")
+
+    # Stop rate limiting cleanup tasks
+    if _rate_limit_middleware:
+        await _rate_limit_middleware.shutdown()
+        logger.info("rate_limiting_cleanup_tasks_stopped")
+
+    # Stop WebSocket rate limiter cleanup
+    await websocket_rate_limiter.shutdown()
+    logger.info("websocket_rate_limiter_cleanup_stopped")
 
     # Close Redis connection
     await close_redis_client()
@@ -110,6 +138,15 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # --- Security Headers Middleware ---
+    setup_security_headers(
+        app,
+        enable_hsts=settings.is_production,  # Only enable HSTS in production with HTTPS
+        hsts_max_age=31536000,  # 1 year
+        hsts_include_subdomains=True,
+        hsts_preload=True,
+    )
+
     # --- CORS Middleware ---
     if settings.cors.enabled:
         app.add_middleware(
@@ -123,6 +160,17 @@ def create_application() -> FastAPI:
             "cors_middleware_configured",
             origins=settings.cors.allowed_origins,
         )
+
+    # --- Rate Limiting Middleware ---
+    # Add rate limiting before logging to reject requests early
+    global _rate_limit_middleware
+    _rate_limit_middleware = setup_rate_limiting(
+        app,
+        default_limit=60,  # 60 requests/minute for normal endpoints
+        trading_limit=10,  # 10 requests/minute for trading endpoints
+        websocket_limit=120,  # 120 messages/minute for WebSocket connections
+        window_seconds=60,
+    )
 
     # --- Logging Middleware ---
     setup_middleware(
@@ -143,26 +191,38 @@ def create_application() -> FastAPI:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         """
-        Handle request validation errors with detailed error messages.
+        Handle request validation errors with RFC 7807 compliant error messages.
 
         Args:
             request: The incoming request
             exc: Validation error exception
 
         Returns:
-            JSON response with validation error details
+            RFC 7807 JSON response with validation error details
         """
         logger.warning(
             "validation_error",
             path=request.url.path,
             errors=exc.errors(),
         )
+
+        # Create RFC 7807 Problem Details response
+        problem = ProblemDetail(
+            type="about:blank",
+            title="Validation Error",
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Request validation failed. Please check the provided data.",
+            instance=str(request.url.path),
+        )
+
+        # Convert to dict and add validation errors
+        problem_dict = problem.model_dump(exclude_none=True)
+        problem_dict["errors"] = exc.errors()
+
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={
-                "detail": exc.errors(),
-                "body": exc.body,
-            },
+            content=problem_dict,
+            media_type="application/problem+json",
         )
 
     @app.exception_handler(Exception)
@@ -170,14 +230,14 @@ def create_application() -> FastAPI:
         request: Request, exc: Exception
     ) -> JSONResponse:
         """
-        Handle uncaught exceptions.
+        Handle uncaught exceptions with RFC 7807 compliant error messages.
 
         Args:
             request: The incoming request
             exc: The exception
 
         Returns:
-            JSON response with error details
+            RFC 7807 JSON response with error details
         """
         logger.error(
             "uncaught_exception",
@@ -186,12 +246,28 @@ def create_application() -> FastAPI:
             error_message=str(exc),
             exc_info=True,
         )
+
+        # In production, return generic message
+        # In development, return detailed error for debugging
+        detail = (
+            f"Internal server error: {str(exc)}"
+            if settings.is_development
+            else "An internal server error occurred"
+        )
+
+        # Create RFC 7807 Problem Details response
+        problem = ProblemDetail(
+            type="about:blank",
+            title="Internal Server Error",
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail,
+            instance=str(request.url.path),
+        )
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "detail": "Internal server error",
-                "error": str(exc) if settings.is_development else "An error occurred",
-            },
+            content=problem.model_dump(exclude_none=True),
+            media_type="application/problem+json",
         )
 
     # --- Health Check Endpoint ---
