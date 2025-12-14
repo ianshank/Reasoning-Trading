@@ -104,6 +104,26 @@ class TestConfig(BaseSettings):
         default=0.1, ge=0.01, le=5.0, description="Delay between retries"
     )
 
+    # Sentiment analysis parameters
+    sentiment_decay_hours: float = Field(
+        default=24.0, ge=1.0, le=168.0, description="Sentiment decay half-life"
+    )
+    sentiment_min_articles: int = Field(
+        default=3, ge=1, le=50, description="Min articles for reliable signal"
+    )
+    sentiment_confidence_threshold: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Sentiment confidence threshold"
+    )
+    sentiment_bullish_score: float = Field(
+        default=0.6, ge=0.0, le=1.0, description="Bullish sentiment score"
+    )
+    sentiment_bearish_score: float = Field(
+        default=-0.6, ge=-1.0, le=0.0, description="Bearish sentiment score"
+    )
+    sentiment_article_count: int = Field(
+        default=5, ge=1, le=50, description="Number of test articles to generate"
+    )
+
 
 @dataclass
 class ScenarioConfig:

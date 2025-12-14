@@ -206,6 +206,194 @@ class CacheSettings(BaseSettings):
     )
 
 
+class SentimentModelType(str, Enum):
+    """Supported sentiment analysis models."""
+
+    FINBERT = "finbert"
+    VADER = "vader"
+    LLM = "llm"
+    ENSEMBLE = "ensemble"
+
+
+class NewsProviderType(str, Enum):
+    """Supported news data providers."""
+
+    FINNHUB = "finnhub"
+    NEWSAPI = "newsapi"
+    ALPACA = "alpaca"
+
+
+class SentimentSettings(BaseSettings):
+    """Sentiment analysis configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="SENTIMENT_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # Provider settings
+    enabled_providers: list[NewsProviderType] = Field(
+        default=[NewsProviderType.FINNHUB],
+        description="Enabled news providers",
+    )
+    newsapi_api_key: SecretStr | None = Field(
+        default=None,
+        alias="NEWSAPI_API_KEY",
+        description="NewsAPI.org API key",
+    )
+
+    # Model settings
+    primary_model: SentimentModelType = Field(
+        default=SentimentModelType.FINBERT,
+        description="Primary sentiment analysis model",
+    )
+    fallback_model: SentimentModelType = Field(
+        default=SentimentModelType.VADER,
+        description="Fallback model when primary unavailable",
+    )
+    use_ensemble: bool = Field(
+        default=True,
+        description="Use ensemble of models for better accuracy",
+    )
+    ensemble_weights: dict[str, float] = Field(
+        default={"finbert": 0.5, "vader": 0.3, "llm": 0.2},
+        description="Weights for ensemble model combination",
+    )
+
+    # Scoring settings
+    sentiment_score_decay_hours: float = Field(
+        default=24.0,
+        ge=1.0,
+        le=168.0,
+        description="Hours until sentiment impact decays by 50%",
+    )
+    min_articles_for_signal: int = Field(
+        default=3,
+        ge=1,
+        le=50,
+        description="Minimum articles required for reliable signal",
+    )
+    confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence to include sentiment",
+    )
+
+    # News retrieval settings
+    news_lookback_hours: int = Field(
+        default=48,
+        ge=1,
+        le=168,
+        description="Hours of news history to analyze",
+    )
+    max_articles_per_symbol: int = Field(
+        default=50,
+        ge=5,
+        le=200,
+        description="Maximum articles to analyze per symbol",
+    )
+
+    # Social sentiment settings
+    enable_social_sentiment: bool = Field(
+        default=False,
+        description="Enable social media sentiment analysis",
+    )
+    social_weight: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Weight of social sentiment in overall score",
+    )
+
+    # Caching
+    cache_ttl_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=60,
+        description="Cache TTL for sentiment scores",
+    )
+
+    # Rate limiting
+    max_requests_per_minute: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Max API requests per minute per provider",
+    )
+
+    # Sentiment thresholds (avoid magic numbers)
+    bullish_threshold: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=0.5,
+        description="Score threshold for bullish classification",
+    )
+    bearish_threshold: float = Field(
+        default=-0.1,
+        ge=-0.5,
+        le=0.0,
+        description="Score threshold for bearish classification",
+    )
+
+    # Neutral fallback probabilities
+    neutral_fallback_positive: float = Field(
+        default=0.33,
+        ge=0.0,
+        le=1.0,
+        description="Fallback positive probability when analysis fails",
+    )
+    neutral_fallback_negative: float = Field(
+        default=0.33,
+        ge=0.0,
+        le=1.0,
+        description="Fallback negative probability when analysis fails",
+    )
+    neutral_fallback_neutral: float = Field(
+        default=0.34,
+        ge=0.0,
+        le=1.0,
+        description="Fallback neutral probability when analysis fails",
+    )
+
+    # LLM analyzer settings
+    llm_sentiment_model: str = Field(
+        default="claude-3-haiku-20240307",
+        description="Model to use for LLM-based sentiment analysis",
+    )
+    llm_temperature: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Temperature for LLM sentiment analysis",
+    )
+
+    # Probability distribution constants for FinBERT mapping
+    secondary_probability_factor: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=0.5,
+        description="Factor for secondary sentiment probability",
+    )
+    neutral_probability_factor: float = Field(
+        default=0.7,
+        ge=0.5,
+        le=1.0,
+        description="Factor for neutral sentiment probability",
+    )
+
+    @field_validator("enabled_providers", mode="before")
+    @classmethod
+    def parse_providers(cls, v: str | list[str] | list[NewsProviderType]) -> list[NewsProviderType]:
+        """Parse comma-separated providers string."""
+        if isinstance(v, str):
+            return [NewsProviderType(p.strip().lower()) for p in v.split(",")]
+        if isinstance(v, list) and len(v) > 0 and isinstance(v[0], str):
+            return [NewsProviderType(p) for p in v]
+        return v
+
+
 class DebateSettings(BaseSettings):
     """Multi-agent debate configuration."""
 
@@ -329,6 +517,7 @@ class Settings(BaseSettings):
     mcts: MCTSSettings = Field(default_factory=MCTSSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
+    sentiment: SentimentSettings = Field(default_factory=SentimentSettings)
     debate: DebateSettings = Field(default_factory=DebateSettings)
     api: APISettings = Field(default_factory=APISettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)
@@ -358,6 +547,7 @@ class Settings(BaseSettings):
             "finnhub": self.data_apis.finnhub_api_key is not None,
             "fred": self.data_apis.fred_api_key is not None,
             "coindesk": self.data_apis.coindesk_api_key is not None,
+            "newsapi": self.sentiment.newsapi_api_key is not None,
         }
 
 

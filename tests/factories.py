@@ -503,3 +503,187 @@ def create_portfolio(with_positions: bool = False) -> PortfolioState:
     if with_positions:
         return factory.create_diversified()
     return factory.create_empty()
+
+
+@dataclass
+class SentimentFactory:
+    """Factory for generating sentiment test data."""
+
+    config: TestConfig = field(default_factory=get_test_config)
+
+    def create_news_article(
+        self,
+        headline: str | None = None,
+        hours_ago: float = 0,
+        source: str = "finnhub",
+        symbol: str | None = None,
+        relevance: float = 1.0,
+    ) -> dict:
+        """
+        Create a mock news article.
+
+        Args:
+            headline: Article headline (generates default if None)
+            hours_ago: Hours since publication
+            source: News source
+            symbol: Trading symbol
+            relevance: Relevance score
+
+        Returns:
+            Dict suitable for NewsArticle
+        """
+        from datetime import datetime, timedelta
+        import hashlib
+
+        sym = symbol or self.config.primary_symbol
+        hl = headline or f"News about {sym}"
+
+        return {
+            "id": hashlib.md5(f"{hl}{hours_ago}".encode()).hexdigest(),
+            "headline": hl,
+            "summary": f"Summary of {hl}",
+            "content": "",
+            "source": source,
+            "source_name": source.title(),
+            "url": f"https://example.com/news/{hash(hl)}",
+            "published_at": datetime.now() - timedelta(hours=hours_ago),
+            "symbols": [sym],
+            "category": "general",
+            "relevance_score": relevance,
+        }
+
+    def create_bullish_articles(
+        self,
+        count: int | None = None,
+        symbol: str | None = None,
+    ) -> list[dict]:
+        """Create bullish news articles."""
+        n = count or self.config.sentiment_article_count
+        sym = symbol or self.config.primary_symbol
+
+        headlines = [
+            f"{sym} surges on record earnings",
+            f"Analysts upgrade {sym} to strong buy",
+            f"{sym} beats expectations, stock rallies",
+            f"Institutional investors bullish on {sym}",
+            f"{sym} announces breakthrough product",
+        ]
+
+        return [
+            self.create_news_article(
+                headline=headlines[i % len(headlines)],
+                hours_ago=float(i * 2),
+                symbol=sym,
+            )
+            for i in range(n)
+        ]
+
+    def create_bearish_articles(
+        self,
+        count: int | None = None,
+        symbol: str | None = None,
+    ) -> list[dict]:
+        """Create bearish news articles."""
+        n = count or self.config.sentiment_article_count
+        sym = symbol or self.config.primary_symbol
+
+        headlines = [
+            f"{sym} crashes on disappointing results",
+            f"Analysts downgrade {sym} amid concerns",
+            f"{sym} misses expectations badly",
+            f"Investors flee {sym} on bad news",
+            f"{sym} faces major legal challenges",
+        ]
+
+        return [
+            self.create_news_article(
+                headline=headlines[i % len(headlines)],
+                hours_ago=float(i * 2),
+                symbol=sym,
+            )
+            for i in range(n)
+        ]
+
+    def create_aggregated_sentiment(
+        self,
+        symbol: str | None = None,
+        news_score: float | None = None,
+        confidence: float = 0.8,
+        article_count: int | None = None,
+    ) -> dict:
+        """
+        Create aggregated sentiment data.
+
+        Args:
+            symbol: Trading symbol
+            news_score: Override news sentiment score
+            confidence: Confidence level
+            article_count: Number of articles
+
+        Returns:
+            Dict suitable for AggregatedSentiment
+        """
+        from datetime import datetime
+
+        sym = symbol or self.config.primary_symbol
+        score = news_score if news_score is not None else self.config.sentiment_bullish_score
+        count = article_count or self.config.sentiment_article_count
+
+        return {
+            "symbol": sym,
+            "news_score": score,
+            "news_confidence": confidence,
+            "social_score": score * 0.8,
+            "social_confidence": confidence * 0.9,
+            "combined_score": score,
+            "combined_confidence": confidence,
+            "article_count": count,
+            "positive_count": count if score > 0 else 0,
+            "negative_count": count if score < 0 else 0,
+            "neutral_count": 0 if score != 0 else count,
+            "analyzed_at": datetime.now(),
+            "providers_used": ["finnhub"],
+            "models_used": ["vader"],
+        }
+
+    def create_bullish_sentiment(
+        self,
+        symbol: str | None = None,
+    ) -> dict:
+        """Create bullish sentiment."""
+        return self.create_aggregated_sentiment(
+            symbol=symbol,
+            news_score=self.config.sentiment_bullish_score,
+        )
+
+    def create_bearish_sentiment(
+        self,
+        symbol: str | None = None,
+    ) -> dict:
+        """Create bearish sentiment."""
+        return self.create_aggregated_sentiment(
+            symbol=symbol,
+            news_score=self.config.sentiment_bearish_score,
+        )
+
+    def create_neutral_sentiment(
+        self,
+        symbol: str | None = None,
+    ) -> dict:
+        """Create neutral sentiment."""
+        return self.create_aggregated_sentiment(
+            symbol=symbol,
+            news_score=0.0,
+        )
+
+
+# Convenience function for sentiment
+def create_sentiment(
+    symbol: str | None = None,
+    bullish: bool = True,
+) -> dict:
+    """Quick helper to create sentiment data."""
+    factory = SentimentFactory()
+    if bullish:
+        return factory.create_bullish_sentiment(symbol)
+    return factory.create_bearish_sentiment(symbol)

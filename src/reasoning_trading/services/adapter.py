@@ -22,6 +22,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from reasoning_trading.config import Settings, TradingMode, get_settings
 from reasoning_trading.core.actions import TradingAction, TradingDirection
 from reasoning_trading.core.state import AnalystSignals, PortfolioState, TradingState
+from reasoning_trading.sentiment import SentimentService, AggregatedSentiment
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +96,9 @@ class TradingServiceAdapter:
         self._alpaca_trading: Any | None = None
         self._alpaca_data: Any | None = None
 
+        # Sentiment service for news/social analysis
+        self._sentiment_service: SentimentService | None = None
+
     async def __aenter__(self) -> TradingServiceAdapter:
         """Async context manager entry."""
         await self._initialize()
@@ -113,6 +117,9 @@ class TradingServiceAdapter:
             )
         else:
             await self._initialize_alpaca_direct()
+
+        # Initialize sentiment service
+        self._sentiment_service = SentimentService(settings=self.settings)
 
     async def _initialize_alpaca_direct(self) -> None:
         """Initialize direct Alpaca connection."""
@@ -152,6 +159,9 @@ class TradingServiceAdapter:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+        if self._sentiment_service is not None:
+            await self._sentiment_service.close()
+            self._sentiment_service = None
 
     def get_tools(self) -> list[Any]:
         """
@@ -167,7 +177,37 @@ class TradingServiceAdapter:
             self._create_get_portfolio_state_tool(),
             self._create_get_market_data_tool(),
             self._create_calculate_risk_metrics_tool(),
+            self._create_get_sentiment_tool(),
         ]
+
+    def _create_get_sentiment_tool(self) -> Any:
+        """Create the get_sentiment tool."""
+        adapter = self
+
+        @tool
+        async def get_sentiment(symbol: str) -> str:
+            """
+            Get news and social sentiment analysis for a symbol.
+
+            Analyzes recent news articles and social media to determine
+            market sentiment. Uses multiple models (FinBERT, VADER, LLM)
+            combined in an ensemble for robust predictions.
+
+            Args:
+                symbol: Trading symbol (e.g., "AAPL" or "BTC")
+
+            Returns:
+                JSON string with sentiment scores, confidence, and
+                top bullish/bearish headlines
+            """
+            try:
+                sentiment = await adapter.get_sentiment(symbol)
+                return sentiment.model_dump_json()
+            except Exception as e:
+                logger.error("get_sentiment failed", error=str(e))
+                return f'{{"error": "{str(e)}"}}'
+
+        return get_sentiment
 
     def _create_get_trading_signal_tool(self) -> Any:
         """Create the get_trading_signal tool."""
@@ -351,6 +391,24 @@ class TradingServiceAdapter:
                 "macro": 0.0,
             },
         )
+
+    async def get_sentiment(self, symbol: str) -> AggregatedSentiment:
+        """
+        Get news and social sentiment for a symbol.
+
+        Uses the sentiment service to analyze recent news and
+        optionally social media content.
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            AggregatedSentiment with combined scores
+        """
+        if self._sentiment_service is None:
+            self._sentiment_service = SentimentService(settings=self.settings)
+
+        return await self._sentiment_service.get_sentiment(symbol)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -632,12 +690,23 @@ class TradingServiceAdapter:
             "risk_rating": "high" if daily_vol > 0.03 else "medium" if daily_vol > 0.015 else "low",
         }
 
-    async def build_trading_state(self, symbol: str) -> TradingState:
+    async def build_trading_state(
+        self,
+        symbol: str,
+        include_sentiment: bool = True,
+    ) -> TradingState:
         """
         Build complete TradingState for MCTS.
 
-        Combines portfolio state, market data, and analyst signals
-        into a TradingState object for tree search.
+        Combines portfolio state, market data, analyst signals, and
+        sentiment analysis into a TradingState object for tree search.
+
+        Args:
+            symbol: Trading symbol
+            include_sentiment: Whether to fetch and include sentiment analysis
+
+        Returns:
+            Complete TradingState for MCTS
         """
         import numpy as np
         from reasoning_trading.core.state import TechnicalIndicators
@@ -647,12 +716,23 @@ class TradingServiceAdapter:
         market_task = self.get_market_data(symbol, "1D", 200)
         signal_task = self.get_trading_signal(symbol, datetime.now().strftime("%Y-%m-%d"))
 
-        portfolio, market_data, signal = await asyncio.gather(
-            portfolio_task, market_task, signal_task
+        # Optionally include sentiment analysis
+        tasks = [portfolio_task, market_task, signal_task]
+        if include_sentiment:
+            sentiment_task = self._get_sentiment_safe(symbol)
+            tasks.append(sentiment_task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        portfolio = results[0] if not isinstance(results[0], Exception) else PortfolioState()
+        market_data = results[1] if not isinstance(results[1], Exception) else {"bars": []}
+        signal = results[2] if not isinstance(results[2], Exception) else TradingSignal(
+            symbol=symbol, direction="hold", confidence=0.5, position_size_pct=0.0, stop_loss_pct=0.05
         )
+        sentiment = results[3] if len(results) > 3 and not isinstance(results[3], Exception) else None
 
         # Build OHLCV array
-        bars = market_data.get("bars", [])
+        bars = market_data.get("bars", []) if isinstance(market_data, dict) else []
         ohlcv = None
         current_price = 0.0
 
@@ -663,11 +743,31 @@ class TradingServiceAdapter:
             ], dtype=np.float64)
             current_price = bars[-1]["close"]
 
-        # Build analyst signals
+        # Build analyst signals with sentiment integration
+        news_score = signal.analyst_signals.get("news", 0.0)
+        news_confidence = 0.5
+        social_score = signal.analyst_signals.get("social", 0.0)
+        social_confidence = 0.5
+
+        # Override with actual sentiment if available
+        if sentiment is not None and sentiment.is_reliable:
+            news_score = sentiment.news_score
+            news_confidence = sentiment.news_confidence
+            social_score = sentiment.social_score
+            social_confidence = sentiment.social_confidence
+            logger.info(
+                "Integrated sentiment into trading state",
+                symbol=symbol,
+                news_score=news_score,
+                social_score=social_score,
+            )
+
         analyst_signals = AnalystSignals(
             market_analyst_score=signal.analyst_signals.get("market", 0.0),
-            news_analyst_score=signal.analyst_signals.get("news", 0.0),
-            social_sentiment_score=signal.analyst_signals.get("social", 0.0),
+            news_analyst_score=news_score,
+            news_analyst_confidence=news_confidence,
+            social_sentiment_score=social_score,
+            social_sentiment_confidence=social_confidence,
             fundamental_analyst_score=signal.analyst_signals.get("fundamental", 0.0),
             macro_analyst_score=signal.analyst_signals.get("macro", 0.0),
             researcher_consensus=(
@@ -678,6 +778,17 @@ class TradingServiceAdapter:
             debate_confidence=signal.confidence,
         )
 
+        # Add sentiment evidence to analyst signals
+        if sentiment is not None:
+            analyst_signals.evidence_packets["sentiment"] = {
+                "news_score": sentiment.news_score,
+                "social_score": sentiment.social_score,
+                "combined_score": sentiment.combined_score,
+                "article_count": sentiment.article_count,
+                "top_bullish": sentiment.top_bullish_headlines[:2],
+                "top_bearish": sentiment.top_bearish_headlines[:2],
+            }
+
         return TradingState(
             symbol=symbol,
             timestamp=datetime.now(),
@@ -687,3 +798,15 @@ class TradingServiceAdapter:
             analyst_signals=analyst_signals,
             risk_profile=self.settings.risk.default_risk_profile.value,
         )
+
+    async def _get_sentiment_safe(self, symbol: str) -> AggregatedSentiment | None:
+        """Safely get sentiment, returning None on failure."""
+        try:
+            return await self.get_sentiment(symbol)
+        except Exception as e:
+            logger.warning(
+                "Failed to get sentiment for trading state",
+                symbol=symbol,
+                error=str(e),
+            )
+            return None
