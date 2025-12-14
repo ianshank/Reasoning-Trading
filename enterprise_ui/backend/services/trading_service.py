@@ -214,11 +214,10 @@ class TradingService:
             direction = signal_data["direction"]
             confidence = signal_data["confidence"]
 
-            # Determine if we should trade - get minimum confidence from settings or environment
-            import os
-            min_confidence = float(os.environ.get("MIN_TRADING_CONFIDENCE", "0.6"))
-            if self.settings and hasattr(self.settings, "trading") and hasattr(self.settings.trading, "min_confidence"):
-                min_confidence = self.settings.trading.min_confidence
+            # Determine if we should trade using centralized config
+            from enterprise_ui.backend.config import get_backend_settings
+            backend_settings = get_backend_settings()
+            min_confidence = backend_settings.trading.min_confidence_threshold
             should_trade = confidence >= min_confidence and direction != "hold"
 
             decision = {

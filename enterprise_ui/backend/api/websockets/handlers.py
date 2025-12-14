@@ -542,9 +542,9 @@ async def authenticate_websocket(
         from jose import JWTError, jwt
 
         # Get settings for JWT configuration
-        from enterprise_ui.backend.config import get_settings
+        from enterprise_ui.backend.config import get_backend_settings
 
-        settings = get_settings()
+        settings = get_backend_settings()
         secret_key = settings.jwt.secret_key.get_secret_value()
         algorithm = settings.jwt.algorithm
 

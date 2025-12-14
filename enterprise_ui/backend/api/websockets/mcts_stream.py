@@ -549,13 +549,12 @@ class MCTSStreamHandler:
 
         await self.connection_manager.broadcast_to_room(room_id, message)
 
-    async def stream_search_completion(
+    async def stream_search_complete(
         self,
         search_id: str,
-        best_action: str,
+        best_action: Any,
         best_value: float,
-        total_iterations: int,
-        duration_seconds: float,
+        total_simulations: int,
         **kwargs: Any,
     ) -> None:
         """
@@ -563,10 +562,9 @@ class MCTSStreamHandler:
 
         Args:
             search_id: The search identifier
-            best_action: The best action found
+            best_action: The best action found (dict or str)
             best_value: The best value found
-            total_iterations: Total iterations performed
-            duration_seconds: Search duration in seconds
+            total_simulations: Total simulations performed
             **kwargs: Additional completion data
         """
         if search_id not in self.search_rooms:
@@ -582,8 +580,7 @@ class MCTSStreamHandler:
                 "result": {
                     "best_action": best_action,
                     "best_value": best_value,
-                    "total_iterations": total_iterations,
-                    "duration_seconds": duration_seconds,
+                    "total_simulations": total_simulations,
                 },
             })
 
@@ -593,8 +590,7 @@ class MCTSStreamHandler:
                 "search_id": search_id,
                 "best_action": best_action,
                 "best_value": best_value,
-                "total_iterations": total_iterations,
-                "duration_seconds": duration_seconds,
+                "total_simulations": total_simulations,
                 **kwargs,
             },
         )
@@ -606,8 +602,7 @@ class MCTSStreamHandler:
             search_id=search_id,
             best_action=best_action,
             best_value=best_value,
-            iterations=total_iterations,
-            duration=duration_seconds,
+            total_simulations=total_simulations,
         )
 
     async def stream_error(
