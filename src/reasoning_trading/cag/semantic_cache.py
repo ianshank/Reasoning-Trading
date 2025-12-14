@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from reasoning_trading.rag.base import DefaultEmbeddingProvider
+
 logger = logging.getLogger(__name__)
 
 import numpy as np
@@ -180,7 +183,7 @@ class SemanticDecisionCache(BaseCAG[CachedDecision]):
         self._embedding_provider = None
 
     @property
-    def embedding_provider(self):
+    def embedding_provider(self) -> "DefaultEmbeddingProvider":
         """Lazy load embedding provider."""
         if self._embedding_provider is None:
             from reasoning_trading.rag.base import DefaultEmbeddingProvider, RAGConfig

@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from numpy.typing import NDArray

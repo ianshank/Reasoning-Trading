@@ -7,11 +7,15 @@ with no hardcoded values.
 
 from __future__ import annotations
 
+import hashlib
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Generic, TypeVar
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -402,8 +406,6 @@ class BaseCAG(ABC, Generic[T]):
 
     def _compute_key_hash(self, key: str) -> str:
         """Compute hash for exact match lookup."""
-        import hashlib
-
         return hashlib.md5(key.encode()).hexdigest()
 
     def _l1_get(self, key_hash: str) -> CacheEntry | None:

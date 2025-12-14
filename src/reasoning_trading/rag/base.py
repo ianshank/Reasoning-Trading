@@ -7,12 +7,15 @@ backed retrieval systems with no hardcoded values.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -247,7 +250,7 @@ class DefaultEmbeddingProvider:
         self._dimension = config.embedding_dimension
 
     @property
-    def model(self):
+    def model(self) -> Any:
         """Lazy load the embedding model."""
         if self._model is None:
             try:
