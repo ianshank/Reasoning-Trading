@@ -10,12 +10,10 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from numpy.typing import NDArray
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -164,6 +162,48 @@ class HierarchicalCAGConfig(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Minimum confidence to use cached result",
+    )
+
+    # RAG confidence settings
+    max_rag_confidence: float = Field(
+        default=0.85,
+        ge=0.5,
+        le=1.0,
+        description="Maximum confidence cap for RAG-based decisions",
+    )
+
+    # Analyst signal thresholds
+    bullish_signal_threshold: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Threshold above which signals are considered bullish",
+    )
+    bearish_signal_threshold: float = Field(
+        default=-0.2,
+        ge=-1.0,
+        le=0.0,
+        description="Threshold below which signals are considered bearish",
+    )
+
+    # Adaptive learning settings
+    adaptive_learning_rate: float = Field(
+        default=0.05,
+        ge=0.001,
+        le=0.5,
+        description="Learning rate for adaptive weight updates",
+    )
+    adaptive_weight_min: float = Field(
+        default=0.05,
+        ge=0.01,
+        le=0.2,
+        description="Minimum weight for any source in adaptive mode",
+    )
+    adaptive_weight_max: float = Field(
+        default=0.5,
+        ge=0.3,
+        le=0.9,
+        description="Maximum weight for any source in adaptive mode",
     )
 
 
@@ -492,7 +532,7 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
                             source_name="pattern_rag",
                             level=CacheLevel.L3_RAG,
                             action_direction=best_pattern.action_direction,
-                            confidence=min(similarity, 0.85),  # Cap RAG confidence
+                            confidence=min(similarity, self.hier_config.max_rag_confidence),
                             similarity=similarity,
                             weight=self._get_source_weight("pattern_rag"),
                             latency_ms=pattern_latency,
@@ -512,7 +552,10 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
                             source_name="strategy_rag",
                             level=CacheLevel.L3_RAG,
                             action_direction=best_strategy.best_action,
-                            confidence=min(similarity * best_strategy.best_action_confidence, 0.85),
+                            confidence=min(
+                                similarity * best_strategy.best_action_confidence,
+                                self.hier_config.max_rag_confidence,
+                            ),
                             similarity=similarity,
                             weight=self._get_source_weight("strategy_rag"),
                             latency_ms=strategy_latency,
@@ -630,10 +673,10 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
                     weighted_score = sum(s * c for s, c in scores) / total_weight
                     avg_confidence = np.mean([c for _, c in scores])
 
-                    # Determine direction
-                    if weighted_score > 0.2:
+                    # Determine direction using configurable thresholds
+                    if weighted_score > self.hier_config.bullish_signal_threshold:
                         direction = "buy"
-                    elif weighted_score < -0.2:
+                    elif weighted_score < self.hier_config.bearish_signal_threshold:
                         direction = "sell"
                     else:
                         direction = "hold"
@@ -808,7 +851,7 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
         if self.hier_config.ensemble_strategy != EnsembleStrategy.ADAPTIVE:
             return
 
-        learning_rate = 0.05
+        learning_rate = self.hier_config.adaptive_learning_rate
         current_weight = self._adaptive_weights.get(source_name, 0.25)
 
         if success:
@@ -818,8 +861,11 @@ class HierarchicalCAG(BaseCAG[HierarchicalDecision]):
             # Decrease weight for unsuccessful source
             new_weight = current_weight - learning_rate * current_weight
 
-        # Clamp to reasonable range
-        new_weight = max(0.05, min(0.5, new_weight))
+        # Clamp to configurable range
+        new_weight = max(
+            self.hier_config.adaptive_weight_min,
+            min(self.hier_config.adaptive_weight_max, new_weight),
+        )
         self._adaptive_weights[source_name] = new_weight
 
         # Renormalize all weights

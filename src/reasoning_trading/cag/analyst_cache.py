@@ -7,7 +7,6 @@ significantly reducing LLM API calls and costs.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import time
 from dataclasses import dataclass, field

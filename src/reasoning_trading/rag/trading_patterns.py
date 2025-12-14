@@ -7,9 +7,6 @@ decision making based on similar past market conditions.
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,7 +19,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from reasoning_trading.rag.base import (
     BaseRAG,
-    DocumentChunk,
     RAGConfig,
     RetrievalResult,
 )
@@ -238,8 +234,19 @@ class TradingPattern:
         action: TradingAction,
         outcome: dict[str, float],
         reasoning: str = "",
+        success_sharpe_threshold: float | None = None,
     ) -> TradingPattern:
-        """Create pattern from state, action, and outcome."""
+        """
+        Create pattern from state, action, and outcome.
+
+        Args:
+            state: Trading state at decision time
+            action: Action taken
+            outcome: Outcome metrics (returns, sharpe, etc.)
+            reasoning: Reasoning for the action
+            success_sharpe_threshold: Threshold for considering pattern successful.
+                If None, uses default from TradingPatternConfig.
+        """
         # Extract technical context
         ind = state.technical_indicators
         technical_context = {
@@ -271,9 +278,13 @@ class TradingPattern:
             ),
         }
 
-        # Determine if win based on Sharpe
-        success_threshold = 0.5
-        outcome_win = outcome.get("sharpe", 0.0) >= success_threshold
+        # Determine if win based on Sharpe - use provided threshold or config default
+        threshold = (
+            success_sharpe_threshold
+            if success_sharpe_threshold is not None
+            else TradingPatternConfig().success_sharpe_threshold
+        )
+        outcome_win = outcome.get("sharpe", 0.0) >= threshold
 
         return cls(
             symbol=state.symbol,
@@ -394,7 +405,11 @@ class TradingPatternRAG(BaseRAG[TradingPattern]):
             Pattern ID
         """
         pattern = TradingPattern.from_state_action_outcome(
-            state, action, outcome, reasoning
+            state,
+            action,
+            outcome,
+            reasoning,
+            success_sharpe_threshold=self.pattern_config.success_sharpe_threshold,
         )
         return await self.store(pattern)
 
@@ -524,6 +539,7 @@ class TradingPatternRAG(BaseRAG[TradingPattern]):
             # Dummy action for query generation
             self._create_dummy_action(),
             {},
+            success_sharpe_threshold=self.pattern_config.success_sharpe_threshold,
         )
         query_text = query_pattern.to_semantic_text()
 

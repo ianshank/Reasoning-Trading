@@ -7,9 +7,7 @@ allowing cache hits on similar market states even without exact matches.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
