@@ -447,11 +447,13 @@ async def check_position_risk(
             value=request.position_value,
         )
 
-        # Detailed checks
+        # Detailed checks - get position limit from environment or settings
+        import os
+        max_position_size_pct = float(os.environ.get("MAX_POSITION_SIZE_PCT", "10.0")) / 100.0
         state = portfolio.get_state()
         checks = {
             "has_sufficient_cash": state.cash_balance >= request.position_value,
-            "within_position_limit": request.position_value <= state.portfolio_value * 0.25,
+            "within_position_limit": request.position_value <= state.portfolio_value * max_position_size_pct,
             "within_daily_loss_limit": True,  # Would check actual daily loss
             "no_conflicting_position": portfolio.get_position(request.symbol) is None,
         }

@@ -222,9 +222,86 @@ class MCTSStreamHandler:
             connection_id, response
         )
 
-        # TODO: Actually start MCTS search process
-        # This would integrate with your MCTS implementation
-        # For now, this is a placeholder
+        # Start MCTS search process in background task
+        asyncio.create_task(
+            self._run_mcts_search(connection_id, search_id, symbol, config)
+        )
+
+    async def _run_mcts_search(
+        self,
+        connection_id: str,
+        search_id: str,
+        symbol: str,
+        config: Dict[str, Any],
+    ) -> None:
+        """
+        Run the actual MCTS search process.
+
+        Args:
+            connection_id: The connection ID to send updates to
+            search_id: The search ID
+            symbol: The trading symbol
+            config: Search configuration
+        """
+        try:
+            from reasoning_trading.mcts.tree import MCTSTree, MCTSConfig
+            from reasoning_trading.core.actions import ActionSpace
+            from reasoning_trading.core.state import TradingState
+
+            # Build MCTS configuration
+            mcts_config = MCTSConfig(
+                max_simulations=config.get("max_simulations", 1000),
+                exploration_weight=config.get("exploration_weight", 1.414),
+                time_budget_ms=config.get("time_budget_ms"),
+            )
+
+            # Create tree and action space
+            tree = MCTSTree(config=mcts_config)
+            action_space = ActionSpace()
+
+            # Build initial state (simplified - in production, fetch real data)
+            initial_state = TradingState(
+                symbol=symbol,
+                timestamp=datetime.utcnow(),
+                current_price=config.get("current_price", 100.0),
+            )
+
+            # Run search with progress callbacks
+            iteration = 0
+            max_iterations = config.get("max_simulations", 1000)
+
+            while iteration < max_iterations:
+                # Check if search was stopped
+                if search_id in self.active_searches and self.active_searches[search_id].get("status") == "stopped":
+                    logger.info("mcts_search_stopped", search_id=search_id)
+                    break
+
+                # Run one iteration
+                tree.iterate(initial_state, action_space)
+                iteration += 1
+
+                # Send progress update every 10 iterations
+                if iteration % 10 == 0:
+                    await self.stream_iteration_update(
+                        search_id=search_id,
+                        iteration=iteration,
+                        best_action=str(tree.get_best_action()) if tree.root else "none",
+                        best_value=tree.root.mean_value if tree.root else 0.0,
+                        total_nodes=tree.total_nodes if hasattr(tree, "total_nodes") else iteration,
+                    )
+
+            # Send completion
+            await self.stream_search_complete(
+                search_id=search_id,
+                best_action=tree.get_best_action().to_dict() if tree.root and tree.get_best_action() else {},
+                best_value=tree.root.mean_value if tree.root else 0.0,
+                total_simulations=iteration,
+            )
+
+        except Exception as e:
+            logger.error("mcts_search_error", search_id=search_id, error=str(e))
+            error_message = create_message("error", {"error": str(e), "search_id": search_id})
+            await self.connection_manager.send_personal_message(connection_id, error_message)
 
     async def _handle_stop_search(
         self,

@@ -156,11 +156,11 @@ def profile_function(
                 )
 
                 if print_stats:
-                    print(f"\n{'='*60}")
-                    print(f"Profile results for: {func.__name__}")
-                    print('='*60)
-                    print(profile_output)
-                    print('='*60)
+                    logger.debug(
+                        "profile_stats_output",
+                        function=func.__name__,
+                        output=profile_output,
+                    )
 
         return cast(F, wrapper)
 
@@ -412,12 +412,5 @@ def print_debug_info() -> None:
         "debug_mode": is_debug_mode(),
         "pid": os.getpid(),
     }
-
-    print("\n" + "="*60)
-    print("DEBUG INFORMATION")
-    print("="*60)
-    for key, value in info.items():
-        print(f"{key}: {value}")
-    print("="*60 + "\n")
 
     logger.debug("debug_info", **info)

@@ -75,7 +75,8 @@ class TestMCTSSearchEndpoint:
         if response.status_code == 200:
             data = response.json()
             # Should include tree structure if requested
-            assert "search_tree" in data or "tree" in data or True  # Flexible check
+            has_tree_data = "search_tree" in data or "tree" in data or "nodes" in data
+            assert has_tree_data, f"Expected tree structure in response, got keys: {list(data.keys())}"
 
     async def test_search_missing_symbol(self, client: AsyncClient):
         """Test search without symbol returns 422."""

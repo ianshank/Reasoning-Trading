@@ -518,28 +518,70 @@ async def authenticate_websocket(
     token: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Authenticate a WebSocket connection.
+    Authenticate a WebSocket connection using JWT tokens.
 
-    This is a placeholder for actual authentication logic.
-    In production, this should validate JWT tokens or session tokens.
+    Validates JWT tokens and extracts user ID for authorized access
+    to protected WebSocket streams including portfolio data.
 
     Args:
         websocket: The WebSocket connection
-        token: Optional authentication token
+        token: JWT authentication token
 
     Returns:
         User ID if authenticated, None otherwise
+
+    Raises:
+        WebSocketDisconnect: If authentication fails and connection should be closed
     """
-    # TODO: Implement actual authentication logic
-    # For now, return a placeholder user ID
+    if not token:
+        logger.warning("websocket_auth_missing_token", client=str(websocket.client))
+        return None
 
-    if token:
-        # In production, validate the token and extract user ID
-        logger.debug("websocket_auth_attempted", token_length=len(token))
-        return "user_placeholder"
+    try:
+        # Import JWT utilities - lazy import to avoid circular dependencies
+        from jose import JWTError, jwt
 
-    logger.debug("websocket_auth_skipped")
-    return None
+        # Get settings for JWT configuration
+        from enterprise_ui.backend.config import get_settings
+
+        settings = get_settings()
+        secret_key = settings.jwt.secret_key.get_secret_value()
+        algorithm = settings.jwt.algorithm
+
+        # Decode and validate the JWT token
+        payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+
+        # Extract user ID from token payload
+        user_id: Optional[str] = payload.get("sub")
+
+        if user_id is None:
+            logger.warning("websocket_auth_invalid_payload", reason="missing_sub")
+            return None
+
+        # Verify token hasn't expired (jose handles this automatically)
+        # Additional validation can be added here (e.g., check user exists in DB)
+
+        logger.info(
+            "websocket_auth_success",
+            user_id=user_id,
+            client=str(websocket.client),
+        )
+        return user_id
+
+    except JWTError as e:
+        logger.warning(
+            "websocket_auth_jwt_error",
+            error=str(e),
+            client=str(websocket.client),
+        )
+        return None
+    except Exception as e:
+        logger.error(
+            "websocket_auth_unexpected_error",
+            error=str(e),
+            client=str(websocket.client),
+        )
+        return None
 
 
 def create_message(

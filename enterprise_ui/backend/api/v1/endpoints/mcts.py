@@ -12,6 +12,7 @@ This module provides REST API endpoints for:
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -477,7 +478,6 @@ async def get_action_distribution(search_id: str) -> ActionDistributionResponse:
         ) if tree.root else 0
 
         # Calculate entropy
-        import numpy as np
         probs = list(distribution.values())
         entropy = -sum(p * np.log2(p) for p in probs if p > 0) if probs else 0.0
 

@@ -64,18 +64,22 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
+# Environment variable for worker count (default: 4)
+ENV GUNICORN_WORKERS=4
+
 # Default command: run with gunicorn for production
-CMD ["gunicorn", \
-     "enterprise_ui.backend.main:app", \
-     "--workers", "4", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--bind", "0.0.0.0:8000", \
-     "--timeout", "120", \
-     "--graceful-timeout", "30", \
-     "--keep-alive", "5", \
-     "--log-level", "info", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+# Worker count is configurable via GUNICORN_WORKERS environment variable
+CMD gunicorn \
+     enterprise_ui.backend.main:app \
+     --workers ${GUNICORN_WORKERS:-4} \
+     --worker-class uvicorn.workers.UvicornWorker \
+     --bind 0.0.0.0:8000 \
+     --timeout 120 \
+     --graceful-timeout 30 \
+     --keep-alive 5 \
+     --log-level info \
+     --access-logfile - \
+     --error-logfile -
 
 # Alternative command for development (with auto-reload):
 # CMD ["python", "-m", "enterprise_ui.backend.main"]

@@ -310,15 +310,48 @@ class MarketStreamHandler:
             )
             return
 
-        # TODO: Fetch current market snapshot from data source
-        # This is a placeholder
-        snapshot = {
-            "symbol": symbol,
-            "price": 0.0,
-            "timestamp": datetime.utcnow().isoformat(),
-            "indicators": {},
-            "regime": "unknown",
-        }
+        # Fetch current market snapshot from data source
+        try:
+            from reasoning_trading.services.market_data import MarketDataService, TimeFrame
+
+            market_data = MarketDataService()
+
+            # Get current snapshot
+            market_snapshot = await market_data.get_snapshot(symbol)
+
+            # Get recent bars for indicators
+            bars = await market_data.get_historical_bars(
+                symbol=symbol,
+                timeframe=TimeFrame.MINUTE_15,
+                limit=100,
+            )
+
+            # Calculate indicators
+            indicators = market_data.calculate_indicators(bars) if bars else {}
+
+            # Detect market regime
+            regime = market_data.detect_market_regime(bars) if bars else "unknown"
+
+            snapshot = {
+                "symbol": symbol,
+                "price": market_snapshot.last_price if market_snapshot else 0.0,
+                "bid": market_snapshot.bid_price if market_snapshot else 0.0,
+                "ask": market_snapshot.ask_price if market_snapshot else 0.0,
+                "volume": market_snapshot.volume if market_snapshot else 0,
+                "timestamp": datetime.utcnow().isoformat(),
+                "indicators": indicators.model_dump() if hasattr(indicators, "model_dump") else {},
+                "regime": regime.value if hasattr(regime, "value") else str(regime),
+            }
+        except Exception as e:
+            logger.warning("market_snapshot_fetch_error", symbol=symbol, error=str(e))
+            snapshot = {
+                "symbol": symbol,
+                "price": 0.0,
+                "timestamp": datetime.utcnow().isoformat(),
+                "indicators": {},
+                "regime": "unknown",
+                "error": str(e),
+            }
 
         response = create_message("snapshot", snapshot)
         await self.connection_manager.send_personal_message(

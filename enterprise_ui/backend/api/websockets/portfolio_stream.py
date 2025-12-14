@@ -246,13 +246,42 @@ class PortfolioStreamHandler:
             connection_id: The connection ID
             user_id: The user ID
         """
-        # TODO: Calculate performance metrics
-        performance = {
-            "total_return": 0.0,
-            "daily_return": 0.0,
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
-        }
+        try:
+            from reasoning_trading.services.portfolio import PortfolioService
+
+            portfolio_service = PortfolioService()
+            state = portfolio_service.get_state()
+            sharpe_ratio = portfolio_service.calculate_sharpe_ratio()
+
+            # Calculate returns from portfolio state
+            initial_value = state.initial_portfolio_value or state.portfolio_value
+            if initial_value > 0:
+                total_return = (state.portfolio_value - initial_value) / initial_value
+            else:
+                total_return = 0.0
+
+            # Daily return approximation from realized P&L
+            daily_return = state.realized_pnl_today / state.portfolio_value if state.portfolio_value > 0 else 0.0
+
+            performance = {
+                "total_return": total_return,
+                "daily_return": daily_return,
+                "sharpe_ratio": sharpe_ratio,
+                "max_drawdown": state.max_drawdown,
+                "current_drawdown": state.current_drawdown,
+                "unrealized_pnl": state.unrealized_pnl,
+                "realized_pnl_today": state.realized_pnl_today,
+                "realized_pnl_total": state.realized_pnl_total,
+            }
+        except Exception as e:
+            logger.warning("performance_calculation_error", user_id=user_id, error=str(e))
+            performance = {
+                "total_return": 0.0,
+                "daily_return": 0.0,
+                "sharpe_ratio": 0.0,
+                "max_drawdown": 0.0,
+                "error": str(e),
+            }
 
         response = create_message("performance", performance)
         await self.connection_manager.send_personal_message(
@@ -271,13 +300,46 @@ class PortfolioStreamHandler:
             connection_id: The connection ID
             user_id: The user ID
         """
-        # TODO: Calculate risk metrics
-        risk_metrics = {
-            "var": 0.0,
-            "expected_shortfall": 0.0,
-            "beta": 1.0,
-            "volatility": 0.0,
-        }
+        try:
+            from reasoning_trading.services.portfolio import PortfolioService
+
+            portfolio_service = PortfolioService()
+            state = portfolio_service.get_state()
+
+            # Calculate VaR (Value at Risk) at 95% confidence
+            # Use daily_var_95 from state if available, otherwise estimate
+            var_95 = state.daily_var_95 if hasattr(state, 'daily_var_95') and state.daily_var_95 else 0.0
+
+            # Expected shortfall (CVaR) - estimate as 1.25x VaR for normal distribution
+            expected_shortfall = var_95 * 1.25 if var_95 else 0.0
+
+            # Beta estimate (default to 1.0 for market-neutral)
+            beta = getattr(state, 'beta', 1.0)
+
+            # Volatility from drawdown data
+            volatility = state.max_drawdown * 2.0 if state.max_drawdown else 0.0
+
+            risk_metrics = {
+                "var": var_95,
+                "expected_shortfall": expected_shortfall,
+                "beta": beta,
+                "volatility": volatility,
+                "current_drawdown": state.current_drawdown,
+                "max_drawdown": state.max_drawdown,
+                "largest_position_pct": state.largest_position_pct,
+                "position_count": state.position_count,
+                "margin_used": state.margin_used,
+                "margin_available": state.margin_available,
+            }
+        except Exception as e:
+            logger.warning("risk_metrics_calculation_error", user_id=user_id, error=str(e))
+            risk_metrics = {
+                "var": 0.0,
+                "expected_shortfall": 0.0,
+                "beta": 1.0,
+                "volatility": 0.0,
+                "error": str(e),
+            }
 
         response = create_message("risk_metrics", risk_metrics)
         await self.connection_manager.send_personal_message(

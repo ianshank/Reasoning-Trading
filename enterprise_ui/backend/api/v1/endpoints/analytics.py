@@ -149,10 +149,11 @@ async def get_performance_metrics(
         state = portfolio.get_state()
         sharpe_ratio = portfolio.calculate_sharpe_ratio()
 
-        # Calculate returns
-        initial_value = 100000.0  # Would come from historical data
+        # Calculate returns - get initial value from portfolio or environment config
+        import os
+        initial_value = float(os.environ.get("INITIAL_PORTFOLIO_VALUE", "0")) or state.initial_portfolio_value or state.portfolio_value
         total_return = state.portfolio_value - initial_value
-        total_return_pct = (total_return / initial_value) * 100
+        total_return_pct = (total_return / initial_value) * 100 if initial_value > 0 else 0.0
 
         # Get trade history
         since = datetime.now() - timedelta(days=period_days)
@@ -404,7 +405,7 @@ async def get_cache_stats(
             avg_get_time_ms=cache_stats.get("avg_get_time_ms", 0.0),
             avg_set_time_ms=cache_stats.get("avg_set_time_ms", 0.0),
             memory_used_mb=cache_stats.get("memory_used_mb", 0.0),
-            memory_limit_mb=cache_stats.get("memory_limit_mb", 1024.0),
+            memory_limit_mb=cache_stats.get("memory_limit_mb", float(os.environ.get("CACHE_MEMORY_LIMIT_MB", "1024"))),
             ttl_seconds=cache_stats.get("ttl_seconds", 3600),
             timestamp=datetime.now(),
         )
