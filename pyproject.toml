@@ -85,6 +85,14 @@ analysis = [
     "chromadb>=0.4.0",
 ]
 
+rag = [
+    # Embeddings
+    "sentence-transformers>=2.2.0",
+    # Vector databases
+    "chromadb>=0.4.0",
+    "faiss-cpu>=1.7.0",
+]
+
 webui = [
     "dash>=3.0.0",
     "dash-bootstrap-components>=2.0.0",
